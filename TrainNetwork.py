@@ -5,9 +5,9 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batchsize', default=128, type=int)
-parser.add_argument('--do_upper', default=False, action='store_true')
-parser.add_argument('--do_lower', default=False, action='store_true')
-parser.add_argument('--datapath', default='./', type=str)
+parser.add_argument('--do_upper',  default=False, action='store_true')
+parser.add_argument('--do_lower',  default=False, action='store_true')
+parser.add_argument('--datapath',  default='./', type=str)
 parser.add_argument('--trainpath', default='./', type=str)
 parser.add_argument('--filecount', default=1 , type=int)
 parser.add_argument('--trainsize', default=1000*72*0.9, type=int)
@@ -47,7 +47,7 @@ def inputfunc(filenames,train=True):
 
 
 def DNN_Regression(features,labels,mode,params):
-    n_inp = len(params["keys"])
+    nfeat = len(params["keys"])
     do_train = params['train']
     
     #Optionally, we can train either only the troposhere (<9948 Pa) or above
@@ -55,12 +55,12 @@ def DNN_Regression(features,labels,mode,params):
         input_stack_upper = tf.boolean_mask(tf.stack([features[i] for i in params['keys']],axis=1),\
                                             features['tropo'] < 0.,axis=0)
         
-        ft_means_upper = tf.constant(params["znorm"]["means_upper"][:n_inp], name='ft_mean_upr')
-        ft_stdev_upper = tf.constant(params["znorm"]["stdev_upper"][:n_inp], name='ft_stdv_upr') 
-        lb_means_upper = tf.constant(params["znorm"]["means_upper"][n_inp+1:], name='lb_mean_upr') 
-        lb_stdev_upper = tf.constant(params["znorm"]["stdev_upper"][n_inp+1:], name='lb_stdv_upr') 
+        ft_means_upper = tf.constant(params["znorm"]["means_upper"][:nfeat], name='ft_mean_upr')
+        ft_stdev_upper = tf.constant(params["znorm"]["stdev_upper"][:nfeat], name='ft_stdv_upr') 
+        lb_means_upper = tf.constant(params["znorm"]["means_upper"][nfeat+1:], name='lb_mean_upr') 
+        lb_stdev_upper = tf.constant(params["znorm"]["stdev_upper"][nfeat+1:], name='lb_stdv_upr') 
         
-        init_upper = tf.subtract(input_stack_upper, tf.constant(np.zeros(n_inp).astype(np.float32)))
+        init_upper = tf.subtract(input_stack_upper, tf.constant(np.zeros(nfeat).astype(np.float32)))
         
         # create layers
         layer_upper = tf.subtract(init_upper, ft_means_upper)
@@ -81,12 +81,12 @@ def DNN_Regression(features,labels,mode,params):
         input_stack_lower = tf.boolean_mask(tf.stack([features[i] for i in params['keys']],axis=1),\
                                             features['tropo'] > 0.,axis=0)
         
-        ft_means_lower = tf.constant(params["znorm"]["means_lower"][:n_inp], name='ft_mean_lwr')
-        ft_stdev_lower = tf.constant(params["znorm"]["stdev_lower"][:n_inp], name='ft_stdv_lwr')
-        lb_means_lower = tf.constant(params["znorm"]["means_lower"][n_inp+1:], name='lb_mean_lwr')
-        lb_stdev_lower = tf.constant(params["znorm"]["stdev_lower"][n_inp+1:], name='lb_stdv_lwr')
+        ft_means_lower = tf.constant(params["znorm"]["means_lower"][:nfeat], name='ft_mean_lwr')
+        ft_stdev_lower = tf.constant(params["znorm"]["stdev_lower"][:nfeat], name='ft_stdv_lwr')
+        lb_means_lower = tf.constant(params["znorm"]["means_lower"][nfeat+1:], name='lb_mean_lwr')
+        lb_stdev_lower = tf.constant(params["znorm"]["stdev_lower"][nfeat+1:], name='lb_stdv_lwr')
    
-        init_lower = tf.subtract(input_stack_lower, tf.constant(np.zeros(n_inp).astype(np.float32)))
+        init_lower = tf.subtract(input_stack_lower, tf.constant(np.zeros(nfeat).astype(np.float32)))
         
         # create layers
         layer_lower = tf.subtract(init_lower, ft_means_lower)
@@ -166,9 +166,11 @@ def run_model(name, n_label, nodes, dirname):
     testnames  = [args.datapath+"testing_%s.tfrecords"%name]
     np.random.shuffle(trainnames)
     
-    global keys
-    keys = open(args.datapath+'keylist_%s.txt'%name,'r').readline().split(',')[:-1]
-
+    global keys, nfeat, nlabel
+    keys   = open(args.datapath+'keylist_%s.txt'%name,'r').readline().split(',')[:-1]
+    nfeat  = len(keys[:-(n_label+1)])
+    nlabel = n_label
+    
     znorm = {}
     if args.do_upper:
         znorm["means_upper"] = np.loadtxt(args.datapath+"means_upr_%s.txt"%name,dtype=np.float32)
@@ -184,7 +186,7 @@ def run_model(name, n_label, nodes, dirname):
         'znorm'             : znorm,
         'learning_rate'     : 0.01,
         "n_nodes"           : nodes,
-        'keys'              : ["h2o","p_lay","t_lay"]+(name=="Planck")*["t_levB","t_levT"]
+        'keys'              : keys[:-(n_label+1)]
     }
 
     config=tf.ConfigProto(log_device_placement=False)
@@ -201,10 +203,6 @@ def run_model(name, n_label, nodes, dirname):
       params    = hyperparams,
       config    = myconfig,
       model_dir = output_dir)
-
-    global nfeat,nlabel
-    nfeat = len(hyperparams["keys"])
-    nlabel = n_label
     
     profiler_hook = tf.train.ProfilerHook(save_steps = 10000, output_dir = output_dir) 
     train_spec = tf.estimator.TrainSpec(input_fn=lambda:inputfunc(trainnames, True), max_steps=steps,hooks=[profiler_hook])

@@ -7,9 +7,9 @@ from TrainNetwork import DNN_Regression
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--do_upper', default=False, action='store_true')
-parser.add_argument('--do_lower', default=False, action='store_true')
-parser.add_argument('--datapath', default='./', type=str)
+parser.add_argument('--do_upper',  default=False, action='store_true')
+parser.add_argument('--do_lower',  default=False, action='store_true')
+parser.add_argument('--datapath',  default='./', type=str)
 parser.add_argument('--trainpath', default='./', type=str)
 args = parser.parse_args()
 
@@ -24,16 +24,17 @@ def get_znorm(name):
         znorm["stdev_lower"] = np.loadtxt(args.datapath+"stdev_lwr_%s.txt"%name,dtype=np.float32)
     return znorm
 
-def get_model(modelpath, name, n_label, nodes):
+def get_model(modelpath, name, ngpt, nodes, keys):
     znorm = get_znorm(name)
+    
     hyperparameters = {
             'train'              : False,
             'n_nodes'            : nodes,
-            'n_labels'           : n_label,
+            'n_labels'           : ngpt,
             'kernel_initializer' : tf.glorot_uniform_initializer(),
             'learning_rate'      : 0.01,
             'znorm'              : znorm,
-            'keys'               : ["h2o","p_lay","t_lay"]+(name=="Planck")*["t_levB","t_levT"],
+            'keys'               : keys,
             }
     model = tf.estimator.Estimator(
     model_fn = DNN_Regression,
@@ -42,21 +43,10 @@ def get_model(modelpath, name, n_label, nodes):
     return model
 
 ### create placeholders for input
-def get_placeholderdict(name):
-    if name == "Planck":
-        placeholderdict = {
-             "h2o"   : tf.placeholder(tf.float32, shape=[None], name="h2o"),
-             "p_lay" : tf.placeholder(tf.float32, shape=[None], name="p_lay"),
-             "t_lay" : tf.placeholder(tf.float32, shape=[None], name="t_lay"),
-             "tropo" : tf.placeholder(tf.float32, shape=[None], name="tropo"),
-             "t_levB": tf.placeholder(tf.float32, shape=[None], name="t_levB"),
-             "t_levT": tf.placeholder(tf.float32, shape=[None], name="t_levT")}
-    else:
-        placeholderdict = {
-             "h2o"  : tf.placeholder(tf.float32, shape=[None], name="h2o"),
-             "p_lay": tf.placeholder(tf.float32, shape=[None], name="p_lay"),
-             "t_lay": tf.placeholder(tf.float32, shape=[None], name="t_lay"),
-             "tropo": tf.placeholder(tf.float32, shape=[None], name="tropo")}
+def get_placeholderdict(name, keys):
+    placeholderdict = {}
+    for key in keys:
+        placeholderdict[key] = tf.placeholder(tf.float32, shape=[None], name=key)
     return placeholderdict
 
 ### function to make frozen graph
@@ -152,10 +142,12 @@ def main_extractweights(dirname, nodes):
                                              ("TSW",    "tauSW",  "tsw", 224),
                                              ("TLW",    "tauLW",  "tlw", 256),
                                              ("Planck", "Planck", "plk", 768)]:
+        keys  = open(args.datapath+'keylist_%s.txt'%name,'r').readline().split(',')[:-1]
+        keys  = keys[:-(ngpt+1)] 
         grp = ncfile.createGroup(groupname)
         modelpath = args.trainpath+"%s/%s/"%(dirname,name)  
-        serving_fn = tf.estimator.export.build_raw_serving_input_receiver_fn(get_placeholderdict(name))    
-        model = get_model(modelpath, name, ngpt, nodes)
+        serving_fn = tf.estimator.export.build_raw_serving_input_receiver_fn(get_placeholderdict(name, keys))    
+        model = get_model(modelpath, name, ngpt, nodes, keys)
         savedmodel_path = model.export_savedmodel(modelpath, serving_fn,
                                                   strip_default_attrs=True)
         frozengraph_path_lwr = modelpath+"/"+"frozen_graph_%s_lower.pb"%graphname
