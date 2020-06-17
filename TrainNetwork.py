@@ -1,17 +1,15 @@
 import os
 import tensorflow as tf
 import numpy as np
-import sys
 import argparse
-from multiprocessing import Process
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batchsize', default=128, type=int)
 parser.add_argument('--do_upper', default=True, type=bool)
-parser.add_argument('--do_lower', default='True', type=bool)
+parser.add_argument('--do_lower', default=True, type=bool)
 parser.add_argument('--datapath', default='./', type=str)
 parser.add_argument('--outpath', default='./', type=str)
-parser.add_argument('--filecount', default='1' , type=int)
+parser.add_argument('--filecount', default=1 , type=int)
 parser.add_argument('--trainsize', default=1000*72*0.9, type=int)
 args = parser.parse_args()
 
@@ -53,7 +51,7 @@ def inputfunc(filenames,train=True):
     dataset = dataset.shuffle(buffer_size = 1000)
     if train:
         dataset = dataset.repeat()
-    dataset = dataset.batch(batchsize)
+    dataset = dataset.batch(args.batchsize)
     dataset.prefetch(1) 
     return dataset
 
@@ -75,7 +73,7 @@ def DNN_Regression(features,labels,mode,params):
         init_upper = tf.subtract(input_stack_upper, tf.constant(np.zeros(n_inp).astype(np.float32)))
         
         # create layers
-        layer_upper  = tf.subtract(init_upper, ft_means_upper)
+        layer_upper = tf.subtract(init_upper, ft_means_upper)
         layer_upper = tf.divide(layer_upper,ft_stdev_upper)
         for n_node in params["n_nodes"]:
             layer_upper = tf.layers.dense(layer_upper,
@@ -87,8 +85,7 @@ def DNN_Regression(features,labels,mode,params):
                                        activation         = None,
                                        kernel_initializer = params["kernel_initializer"])
         
-        output_layer_upper_noexp = tf.add(tf.multiply(output_layer_upper_raw,lb_stdev_upper),lb_means_upper,name='output_upper_noexp')
-        output_layer_upper = myexp(tf.add(tf.multiply(output_layer_upper_raw,lb_stdev_upper),lb_means_upper,name='output_upper'))
+        output_layer_upper = tf.add(tf.multiply(output_layer_upper_raw,lb_stdev_upper),lb_means_upper,name='output_upper')
 
     if args.do_lower:
         input_stack_lower = tf.boolean_mask(tf.stack([features[i] for i in params['keys']],axis=1),\
@@ -114,8 +111,7 @@ def DNN_Regression(features,labels,mode,params):
                                        activation         = None,
                                        kernel_initializer = params["kernel_initializer"])
         
-        output_layer_lower_noexp = tf.add(tf.multiply(output_layer_lower_raw, lb_stdev_lower), lb_means_lower,name='output_lower_noexp')
-        output_layer_lower = myexp(tf.add(tf.multiply(output_layer_lower_raw, lb_stdev_lower), lb_means_lower,name='output_lower'))
+        output_layer_lower = tf.add(tf.multiply(output_layer_lower_raw, lb_stdev_lower), lb_means_lower,name='output_lower')
 
     #setup decaying learning rate, every 10 epochs
     rate = tf.train.exponential_decay(params['learning_rate'], tf.train.get_global_step(), decaystep, 0.8, staircase=True)
@@ -123,28 +119,25 @@ def DNN_Regression(features,labels,mode,params):
     if args.do_upper and args.do_lower:
         output_layer_raw   = tf.concat([output_layer_upper_raw, output_layer_lower_raw], axis=0)
         output_layer       = tf.concat([output_layer_upper, output_layer_lower], axis=0, name='output')
-        output_layer_noexp = tf.concat([output_layer_upper_noexp, output_layer_lower_noexp], axis=0, name='output_noexp')
         if do_train:   
             labels_upr = tf.boolean_mask(labels[:], features['tropo']<0., axis=0)
             labels_lwr = tf.boolean_mask(labels[:], features['tropo']>0., axis=0)
             labels = tf.concat([labels_upr, labels_lwr], axis=0)
     elif args.do_upper:
         output_layer_raw   = tf.identity(output_layer_upper_raw)
-        output_layer_noexp = tf.identity(output_layer_upper_noexp,name='output_noexp')
         output_layer       = tf.identity(output_layer_upper, name='output')
         if do_train:
             labels_upr = tf.boolean_mask(labels[:], features['tropo']<0., axis=0)
             labels = tf.identity(labels_upr)
     elif args.do_lower:
         output_layer_raw   = tf.identity(output_layer_lower_raw)
-        output_layer_noexp = tf.identity(output_layer_lower_noexp, name='output_noexp')
         output_layer       = tf.identity(output_layer_lower, name='output')
         if do_train:
             labels_lwr = tf.boolean_mask(labels[:], features['tropo']>0., axis=0)
             labels  = tf.identity(labels_lwr)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
-        predictions = {'predictions' : output_layer}
+        predictions = {'predictions' : output_layer_raw}
         return tf.estimator.EstimatorSpec(
                 mode,predictions=predictions,export_outputs={'predict':\
                                  tf.estimator.export.PredictOutput(predictions)})
