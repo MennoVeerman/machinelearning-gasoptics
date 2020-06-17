@@ -3,105 +3,101 @@ import os
 import numpy as np
 import tensorflow as tf
 import multiprocessing as mp
-def mylog(x):
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--datapath',   default='./', type=str)
+parser.add_argument('--inputfile',  default='./', type=str)
+parser.add_argument('--filecount',  default=1 , type=int)
+parser.add_argument('--log_input',  default=False, action='store_true')
+parser.add_argument('--log_output', default=False, action='store_true')
+parser.add_argument('--do_o3',      default=False, action='store_true')
+args = parser.parse_args()
+
+def fast_log(x):
     x = np.sqrt(x)
     x = np.sqrt(x)
     x = np.sqrt(x)
     x = np.sqrt(x)
     return (x-1)*16
 
-datafile = "RCEMIP/samples_opticalprops.nc"
-ninp = 3
-path = "/scratch-shared/mveerman/PrepareData/RCEMIP/"
-datapath = path
-log_output = True
-log_input  = True
+
 def read_normalize_keys(name):
-    ninp = 3 + (name=="Planck_lay") * 2
-    ncfile   = nc.Dataset(datafile)
-    optprop  = ncfile.variables[name][:]
-    nfeat,nlay,ncol = optprop.shape
-    print("X",nfeat,nlay,ncol)
-    optprop  = optprop.reshape(nfeat,nlay*ncol)
+    ninp = 3 + args.do_o3 + (name=="Planck") * 2
+    ncfile   = nc.Dataset(args.inputfile)
+    optprop  = ncfile.variables[name + (name=="Plank")*"_lay"][:]
+    ngpt,nlay,ncol = optprop.shape
+    optprop  = optprop.reshape(ngpt, nlay*ncol)
     optprop  = np.transpose(optprop)
     
-    if name == "Planck_lay":
-        data  = np.zeros((optprop.shape[0], ninp+1+nfeat*3))
-        optpropA  = np.transpose(ncfile.variables["Planck_levinc"][:].reshape(nfeat,nlay*ncol))
-        optpropB  = np.transpose(ncfile.variables["Planck_levdec"][:].reshape(nfeat,nlay*ncol))
-        print(np.min(optprop),np.min(optpropA),np.min(optpropB))
-        data[:,ninp+1        :ninp+1+nfeat]   =  optprop[:]
-        data[:,ninp+1+nfeat  :ninp+1+nfeat*2] =  optpropA[:]
-        data[:,ninp+1+nfeat*2:ninp+1+nfeat*3] =  optpropB[:]
-        print(np.min(data[:,ninp+1:]))
+    if name == "Planck":
+        data  = np.zeros((optprop.shape[0], ninp+1+ngpt*3))
+        optprop_inc  = np.transpose(ncfile.variables[name+"_levinc"][:].reshape(ngpt,nlay*ncol))
+        optprop_dec  = np.transpose(ncfile.variables[name+"_levdec"][:].reshape(ngpt,nlay*ncol))
+        data[:,ninp+1+ngpt*0:ninp+1+ngpt*1] =  optprop[:]
+        data[:,ninp+1+ngpt*1:ninp+1+ngpt*2] =  optprop_inc[:]
+        data[:,ninp+1+ngpt*2:ninp+1+ngpt*3] =  optprop_dec[:]
     else:
-        data  = np.zeros((optprop.shape[0], ninp+1+nfeat))
+        data  = np.zeros((optprop.shape[0], ninp+1+ngpt))
         data[:,ninp+1:] =  optprop[:]
 
     data[:,0] = ncfile.variables['qlay'][:].reshape(nlay*ncol)
-    data[:,1] = ncfile.variables['Play'][:].reshape(nlay*ncol)
-    data[:,2] = ncfile.variables['Tlay'][:].reshape(nlay*ncol)
+    if args.do_o3: data[:,1] = ncfile.variables['o3'][:].reshape(nlay*ncol)
+    data[:,1+args.do_o3] = ncfile.variables['Play'][:].reshape(nlay*ncol)
+    data[:,2+args.do_o3] = ncfile.variables['Tlay'][:].reshape(nlay*ncol)
 
-    if name == "Planck_lay":
-        keys = ['h2o','p_lay','t_lay','t_levB','t_levT','tropo']
-        data[:,3] = ncfile.variables['Tlev'][:-1].reshape(nlay*ncol)
-        data[:,4] = ncfile.variables['Tlev'][1:].reshape(nlay*ncol)
-        keys += ["lbl"+"0"*(3-len(str(i)))+str(i) for i in range(1,nfeat*3+1)]
+    if name == "Planck":
+        keys = ['h2o']+['o3']*args.do_o3+['p_lay','t_lay','t_levB','t_levT','tropo']
+        data[:,3+args.do_o3] = ncfile.variables['Tlev'][:-1].reshape(nlay*ncol)
+        data[:,4+args.do_o3] = ncfile.variables['Tlev'][1:].reshape(nlay*ncol)
+        keys += ["lbl"+"%03d"%i for i in range(1,ngpt*3+1)]
     else:
-        keys = ['h2o','p_lay','t_lay','tropo']
-        keys += ["lbl"+"0"*(3-len(str(i)))+str(i) for i in range(1,nfeat+1)]
+        keys = ['h2o']+['o3']*args.do_o3+['p_lay','t_lay','tropo']
+        keys += ["lbl"+"%03d"%i for i in range(1,ngpt+1)]
     mask  = np.where(data[:,1] < 9948.431564193395,-1,1)
      
-    data[:,ninp+1:] = np.where(data[:,ninp+1:]==0,1e-12,data[:,ninp+1:])
+    data[:,ninp+1:] = np.where(data[:,ninp+1:]==0, 1e-12, data[:,ninp+1:])
     
     if np.min(mask) == -1:    
         keepzero = (np.max(data[mask==-1],axis=0) == 1e-12)
         keepzero[:ninp+1] = False
-    if log_output and name != "SSA":
-        data[:,ninp+1:] = mylog(data[:,ninp+1:])
-    if name == "tauLW":
-        print(data[:15,183],np.std(data[:15,183]))
-        above = (mask == -1)
-        abovedata = data[above,185]
-        for i in abovedata:
-            print("T",i)
-        #print("XYZ",data[above,185],np.std(data[above,185]))
-    if log_input:
-        data[:,0]  = mylog(data[:,0]) 
-        data[:,1]  = mylog(data[:,1])
+        
+    if args.log_output and name != "SSA":
+        data[:,ninp+1:] = fast_log(data[:,ninp+1:])
+        
+    if args.log_input:
+        data[:,0]  = fast_log(data[:,0]) 
+        if args.do_o3: data[:,1]  = fast_log(data[:,1])
+        data[:,1+args.do_o3]  = fast_log(data[:,1+args.do_o3])
 
     #above tropopause (0)
     if np.min(mask) == -1:    
         above = (mask == -1)
-        Mean0 = np.mean(data[above],axis=0)
-        Std0  = np.std(data[above],axis=0)
-        Std0[Mean0==1] = 1.
-        Mean0[Mean0==1] = 0.
-        if name =="Planck_lay":
-            name = "Planck"
-        np.savetxt(datapath+"means0_%s.txt"%name,Mean0)
-        np.savetxt(datapath+"stdev0_%s.txt"%name,Std0)
+        mean_upr = np.mean(data[above],axis=0)
+        stdv_upr = np.std(data[above],axis=0)
+        stdv_upr[mean_upr==1] = 1.
+        mean_upr[mean_upr==1] = 0.
+        np.savetxt(args.datapath+"means_upr_%s.txt"%name,mean_upr)
+        np.savetxt(args.datapath+"stdev_upr_%s.txt"%name,stdv_upr)
         data[above,ninp+1:] = (data[above,ninp+1:] -\
-            Mean0[np.newaxis,ninp+1:])/Std0[np.newaxis,ninp+1:]
+            mean_upr[np.newaxis,ninp+1:])/stdv_upr[np.newaxis,ninp+1:]
  
     #below tropopause (1)
     if np.max(mask) == 1:
         below = (mask == 1)
-        Mean1 = np.mean(data[below],axis=0)
-        Std1  = np.std(data[below],axis=0)
-        Std1[Mean1==1] = 1.
-        Mean1[Mean1==1] = 0.
-        if name =="Planck_lay":
-            name = "Planck"
-        np.savetxt(datapath+"means1_%s.txt"%name,Mean1)
-        np.savetxt(datapath+"stdev1_%s.txt"%name,Std1)
+        mean_lwr = np.mean(data[below],axis=0)
+        stdv_lwr = np.std(data[below],axis=0)
+        stdv_lwr[mean_lwr==1] = 1.
+        mean_lwr[mean_lwr==1] = 0.
+        np.savetxt(args.datapath+"means_lwr_%s.txt"%name,mean_lwr)
+        np.savetxt(args.datapath+"stdev_lwr_%s.txt"%name,stdv_lwr)
         data[below,ninp+1:] = (data[below,ninp+1:] -\
-            Mean1[np.newaxis,ninp+1:])/Std1[np.newaxis,ninp+1:]
+            mean_lwr[np.newaxis,ninp+1:])/stdv_lwr[np.newaxis,ninp+1:]
         
     data[:,ninp] = mask 
     
     if np.min(mask) == -1:    
-        keepzeromask = ((mask == -1)[:,np.newaxis] * 1 + keepzero[np.newaxis,:] * 1) == 2  
+        keepzeromask = ((mask == -1)[:,np.newaxis]*1 + keepzero[np.newaxis,:]*1) == 2  
         data[keepzeromask] = 0.
 
     np.random.shuffle(data)
@@ -117,50 +113,40 @@ def serialize_example(featurelist):
         feature[keylist[i]] = _float_feature(featurelist[i])
     ExampleProto = tf.train.Example(features=tf.train.Features(feature=feature))
     return ExampleProto.SerializeToString()
+
 def write_keys(keys,name):
-    if name =="Planck_lay":
-        name = "Planck"
-    keyfile = open(datapath+'keylist_%s.txt'%name,'w')
+    keyfile = open(args.datapath+'keylist_%s.txt'%name,'w')
     for key in keys:
         keyfile.write(key+",")  
     keyfile.close()
-    return
+
 def write_tfrecords(inpdata,fname):
     with tf.python_io.TFRecordWriter(fname) as writer:
         for i in inpdata:
             writer.write(serialize_example(i))
     return
 
-def write_main(files,name,ntrain=0.9):
+def write_main(files, name, ntrain=0.9):
     global keylist
     data,keylist = read_normalize_keys(name)
-    if 'keylist_%s.txt'%name not in os.listdir(datapath) :
-        write_keys(keylist,name)
+    write_keys(keylist,name)
     np.random.shuffle(data)
     ltrain = int(len(data) * ntrain)    
-    if name =="Planck_lay":
-        name = "Planck"
+    subsubprocesses = [mp.Process(target=write_tfrecords,args=(data[ltrain:],args.datapath+'testing_%s.tfrecords'%name))]
 
-    subsubprocesses = [mp.Process(target=write_tfrecords,args=(data[ltrain:],datapath+'testing_%s.tfrecords'%name))]
-
-    lthird = ltrain//3
-    print(lthird,ltrain)
-    subsubprocesses += [mp.Process(target=write_tfrecords,args=(data[:lthird],datapath+'training0_%s.tfrecords'%name))]
-    subsubprocesses += [mp.Process(target=write_tfrecords,args=(data[lthird:2*lthird],datapath+'training1_%s.tfrecords'%name))]
-    subsubprocesses += [mp.Process(target=write_tfrecords,args=(data[2*lthird:ltrain],datapath+'training2_%s.tfrecords'%name))]
+    lsub = ltrain//args.filecount
+    for i in range(args.filecount)
+        subsubprocesses += [mp.Process(target=write_tfrecords, args=(data[lsub*i:lsub*(i+1)], args.datapath+'training%s_%s.tfrecords'%(i,name)))]
 
     for sp in subsubprocesses:
         sp.start()
     for sp in subsubprocesses:
         sp.join()
 
-### run:
 if __name__ == '__main__':  
-#names: tauLW, tauSW, SSA, Planck_lay
     subprocesses = []
-    for nm in ["Planck_lay","tauLW","tauSW","SSA"]:
-        subprocesses += [mp.Process(target=write_main,args=(datapath,nm))]
-    #write_main(datafile,'tauLW')
+    for nm in ["Planck","tauLW","tauSW","SSA"]:
+        subprocesses += [mp.Process(target=write_main, args=(args.datapath,name))]
     for sp in subprocesses:
         sp.start()
     for sp in subprocesses:
