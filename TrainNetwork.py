@@ -5,24 +5,18 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--batchsize', default=128, type=int)
-parser.add_argument('--do_upper', default=True, type=bool)
-parser.add_argument('--do_lower', default=True, type=bool)
+parser.add_argument('--do_upper', default=False, action='store_true')
+parser.add_argument('--do_lower', default=False, action='store_true')
 parser.add_argument('--datapath', default='./', type=str)
-parser.add_argument('--outpath', default='./', type=str)
+parser.add_argument('--trainpath', default='./', type=str)
 parser.add_argument('--filecount', default=1 , type=int)
 parser.add_argument('--trainsize', default=1000*72*0.9, type=int)
 args = parser.parse_args()
 
 decaystep = args.trainsize/args.batchsize * 10 * (args.do_upper+args.do_lower) 
 
-steps = int(658 * (args.do_upper+args.do_lower) * args.trainsize/args.batchsize)
-
-
-tf.logging.set_verbosity(tf.logging.INFO)
-os.environ['KMP_BLOCKTIME'] = str(1)
-os.environ['KMP_SETTINGS'] = str(1)
-os.environ['KMP_AFFINITY'] = 'granularity=fine,compact,1,0'
-os.environ['OMP_NUM_THREADS'] = str(5)
+steps = int(2 * (args.do_upper+args.do_lower) * args.trainsize/args.batchsize)
+   #658 
 
 def myexp(x):
     x = tf.add(1.,tf.divide(x,16.))   
@@ -46,7 +40,7 @@ def _parse_function(protoexample):
 #Read data from TFRecord files
 def inputfunc(filenames,train=True):
     dataset = tf.data.TFRecordDataset(filenames)
-    dataset = dataset.map(map_func=_parse_function,num_parallel_calls=os.environ['OMP_NUM_THREADS'])
+    dataset = dataset.map(map_func=_parse_function,num_parallel_calls=np.int32(os.environ['OMP_NUM_THREADS']))
     dataset = dataset.cache()
     dataset = dataset.shuffle(buffer_size = 1000)
     if train:
@@ -198,13 +192,13 @@ def run_model(name, n_label, nodes, dirname):
     }
 
     config=tf.ConfigProto(log_device_placement=False)
-    config.intra_op_parallelism_threads = os.environ['OMP_NUM_THREADS']
+    config.intra_op_parallelism_threads = np.int32(os.environ['OMP_NUM_THREADS'])
     config.inter_op_parallelism_threads = 1
     
     myconfig = tf.estimator.RunConfig(session_config=config, save_summary_steps=10000,\
                 save_checkpoints_steps=10000, log_step_count_steps=1000)     
 
-    output_dir = args.outpath+dirname+name
+    output_dir = args.trainpath+dirname+name
 
     DNNR = tf.estimator.Estimator(
       model_fn  = DNN_Regression,
@@ -228,7 +222,14 @@ def main(nodes, dirname):
     run_model("SSA",    224, nodes, dirname)
 
 if __name__ == '__main__':
-    for nodes, dirname in [ ([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+    
+    tf.logging.set_verbosity(tf.logging.INFO)
+    os.environ['KMP_BLOCKTIME'] = str(1)
+    os.environ['KMP_SETTINGS'] = str(1)
+    os.environ['KMP_AFFINITY'] = 'granularity=fine,compact,1,0'
+    os.environ['OMP_NUM_THREADS'] = str(15)
+
+    for nodes, dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
         main(nodes, dirname)
 
 

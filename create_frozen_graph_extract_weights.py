@@ -7,8 +7,8 @@ from TrainNetwork import DNN_Regression
 import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--do_upper', default=True, type=bool)
-parser.add_argument('--do_lower', default=True, type=bool)
+parser.add_argument('--do_upper', default=False, action='store_true')
+parser.add_argument('--do_lower', default=False, action='store_true')
 parser.add_argument('--datapath', default='./', type=str)
 parser.add_argument('--trainpath', default='./', type=str)
 args = parser.parse_args()
@@ -72,16 +72,9 @@ def frozen_graph_maker(export_dir, output_graph, output_node):
     with tf.gfile.GFile(output_graph, "wb") as gf:
             gf.write(output_graph_def.SerializeToString())
 
-#    with tf.Session() as session:
-#        with gfile.FastGFile(output_graph,"rb") as gf:
-#            graph_def = tf.GraphDef()
-#            graph_def.ParseFromString(gf.read())
-#            session.graph.as_default()
-#            tf.import_graph_def(graph_def, name='')
-#            const_nodes=[n for n in graph_def.node]
-#        for n in range(len(const_nodes)):
-#            print(n, const_nodes[n].name)    
-
+def find_idx(namelist, name):
+    return [namelist.index(s) for s in namelist if name in s]
+    
 def extract_weights(graphpath_lwr, graphpath_upr, ncgrp):
     graphs = []
     if args.do_lower: 
@@ -98,14 +91,11 @@ def extract_weights(graphpath_lwr, graphpath_upr, ncgrp):
                 tf.import_graph_def(graph_def, name='')
                 const_nodes=[n for n in graph_def.node if n.op=='Const']
         nodenames = [const_nodes[n].name for n in range(len(const_nodes))]
-        print("names of all constant nodes:") 
-        for n in range(len(const_nodes)):
-            print(n, const_nodes[n].name)
-
-        ft_mean = tensor_util.MakeNdarray(const_nodes[14].attr['value'].tensor)
-        ft_stdv = tensor_util.MakeNdarray(const_nodes[15].attr['value'].tensor)
-        lb_mean = tensor_util.MakeNdarray(const_nodes[16].attr['value'].tensor)
-        lb_stdv = tensor_util.MakeNdarray(const_nodes[17].attr['value'].tensor)
+        
+        ft_mean = tensor_util.MakeNdarray(const_nodes[find_idx(nodenames, 'ft_mean')[0]].attr['value'].tensor)
+        ft_stdv = tensor_util.MakeNdarray(const_nodes[find_idx(nodenames, 'ft_stdv')[0]].attr['value'].tensor)
+        lb_mean = tensor_util.MakeNdarray(const_nodes[find_idx(nodenames, 'lb_mean')[0]].attr['value'].tensor)
+        lb_stdv = tensor_util.MakeNdarray(const_nodes[find_idx(nodenames, 'lb_stdv')[0]].attr['value'].tensor)
         n_in  = len(ft_mean)
         n_out = len(lb_mean)        
         if uplow == "_lower":
@@ -121,7 +111,7 @@ def extract_weights(graphpath_lwr, graphpath_upr, ncgrp):
         n3[:] = lb_mean 
         n4[:] = lb_stdv 
         
-        bias_idx = [nodenames.index(s) for s in nodenames if "bias" in s]
+        bias_idx = find_idx(nodenames, 'bias')
         for i in range(len(bias_idx)):
             idx  = bias_idx[i]
             bias = tensor_util.MakeNdarray(const_nodes[idx].attr['value'].tensor)
@@ -133,7 +123,7 @@ def extract_weights(graphpath_lwr, graphpath_upr, ncgrp):
                 b = ncgrp.createVariable("bias"+str(i+1)+uplow,np.float32,("Nout",))
             b[:] = bias
 
-        wgth_idx = [nodenames.index(s) for s in nodenames if "kernel" in s]
+        wgth_idx = find_idx(nodenames, 'kernel')
         for i in range(len(wgth_idx)):
             idx  = wgth_idx[i]
             wgth = tensor_util.MakeNdarray(const_nodes[idx].attr['value'].tensor)
@@ -145,10 +135,6 @@ def extract_weights(graphpath_lwr, graphpath_upr, ncgrp):
                 w = ncgrp.createVariable("wgth"+str(i+1)+uplow,np.float32,("Nl"+str(i+1),"Nl"+str(i)))
             w[:] = np.transpose(wgth)
       
-        for n in nodenames:
-            print(n,"kernel" in n)
-        print([nodenames.index(s) for s in nodenames if "bias" in s])
-        print([nodenames.index(s) for s in nodenames if "kernel" in s])
         if args.do_lower and not args.do_upper:
             lowup1  = args.do_lower*'lower'+args.do_upper*'upper'
             lowup2  = args.do_upper*'lower'+args.do_lower*'upper'
