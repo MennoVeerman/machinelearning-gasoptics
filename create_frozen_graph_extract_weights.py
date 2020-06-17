@@ -50,8 +50,7 @@ def get_placeholderdict(name):
              "t_lay" : tf.placeholder(tf.float32, shape=[None], name="t_lay"),
              "tropo" : tf.placeholder(tf.float32, shape=[None], name="tropo"),
              "t_levB": tf.placeholder(tf.float32, shape=[None], name="t_levB"),
-             "t_levT": tf.placeholder(tf.float32, shape=[None], name="t_levT"),
-             }
+             "t_levT": tf.placeholder(tf.float32, shape=[None], name="t_levT")}
     else:
         placeholderdict = {
              "h2o"  : tf.placeholder(tf.float32, shape=[None], name="h2o"),
@@ -135,73 +134,38 @@ def extract_weights(graphpath_lwr, graphpath_upr, ncgrp):
                 w = ncgrp.createVariable("wgth"+str(i+1)+uplow,np.float32,("Nl"+str(i+1),"Nl"+str(i)))
             w[:] = np.transpose(wgth)
       
-        if args.do_lower and not args.do_upper:
-            lowup1  = args.do_lower*'lower'+args.do_upper*'upper'
-            lowup2  = args.do_upper*'lower'+args.do_lower*'upper'
-            varnames = [name for name in ncgrp.variables if lowup1 in name]
+        #currently, we need to supply weights for both upper and lower atmosphere to the solver
+        if args.do_lower + args.do_upper != 2:
+            lowup_ref  = args.do_lower*'lower'+args.do_upper*'upper'
+            lowup_sub  = args.do_upper*'lower'+args.do_lower*'upper'
+            varnames = [name for name in ncgrp.variables if lowup_ref in name]
             for varname in varnames:
                 oldvar = ncgrp.variables[varname]
-                newvar = ncgrp.createVariable(varname[:-5]+lowup2,np.float32,oldvar.dimensions)
+                newvar = ncgrp.createVariable(varname[:-5]+lowup_sub, np.float32, oldvar.dimensions)
                 newvar[:] = 0.
 
-def main_loop():
-    for nodes,dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
-        main_extractweights(dirname, nodes)
-        
+       
 def main_extractweights(dirname, nodes):
     ncfile = nc.Dataset(args.trainpath+"weights_%s.nc"%dirname[3:-1], "w")    
 
-    grp = ncfile.createGroup("SSA"); name="SSA"
-    modelpath = args.trainpath+"%s/%s/"%(dirname,name)  
-    serving_fn = tf.estimator.export.build_raw_serving_input_receiver_fn(get_placeholderdict(name))    
-    model = get_model(modelpath,name,224,nodes)
-    savedmodel_path = model.export_savedmodel(modelpath, serving_fn,
-                            strip_default_attrs=True)
-    frozengraph_pathL = modelpath+"/"+"frozen_graph_ssa_lower.pb"
-    frozengraph_pathU = modelpath+"/"+"frozen_graph_ssa_upper.pb"
-    if args.do_lower: frozen_graph_maker(savedmodel_path,frozengraph_pathL,'output_lower')
-    if args.do_upper: frozen_graph_maker(savedmodel_path,frozengraph_pathU,'output_upper')
-    extract_weights(frozengraph_pathL,frozengraph_pathU,grp)
-    tf.keras.backend.clear_session()
-    
-    grp = ncfile.createGroup("TSW"); name="tauSW"
-    modelpath = args.trainpath+"%s/%s/"%(dirname,name)  
-    serving_fn = tf.estimator.export.build_raw_serving_input_receiver_fn(get_placeholderdict(name))    
-    model = get_model(modelpath,name,224,nodes)
-    savedmodel_path = model.export_savedmodel(modelpath, serving_fn,
-                            strip_default_attrs=True)
-    frozengraph_pathL = modelpath+"/"+"frozen_graph_tsw_lower.pb"
-    frozengraph_pathU = modelpath+"/"+"frozen_graph_tsw_upper.pb"
-    if args.do_lower: frozen_graph_maker(savedmodel_path,frozengraph_pathL,'output_lower')
-    if args.do_upper: frozen_graph_maker(savedmodel_path,frozengraph_pathU,'output_upper')
-    extract_weights(frozengraph_pathL,frozengraph_pathU,grp)
-    tf.keras.backend.clear_session()
-    
-    grp = ncfile.createGroup("TLW"); name="tauLW"
-    modelpath = args.trainpath+"%s/%s/"%(dirname,name)  
-    serving_fn = tf.estimator.export.build_raw_serving_input_receiver_fn(get_placeholderdict(name))    
-    model = get_model(modelpath,name,256,nodes)
-    savedmodel_path = model.export_savedmodel(modelpath, serving_fn,
-                            strip_default_attrs=True)
-    frozengraph_pathL = modelpath+"/"+"frozen_graph_tlw_lower.pb"
-    frozengraph_pathU = modelpath+"/"+"frozen_graph_tlw_upper.pb"
-    if args.do_lower: frozen_graph_maker(savedmodel_path,frozengraph_pathL,'output_lower')
-    if args.do_upper: frozen_graph_maker(savedmodel_path,frozengraph_pathU,'output_upper')
-    extract_weights(frozengraph_pathL,frozengraph_pathU,grp)
-    tf.keras.backend.clear_session()
-    
-    grp = ncfile.createGroup("Planck"); name="Planck"
-    modelpath = args.trainpath+"%s/%s/"%(dirname,name)  
-    serving_fn = tf.estimator.export.build_raw_serving_input_receiver_fn(get_placeholderdict(name))    
-    model = get_model(modelpath,name,768,nodes)
-    savedmodel_path = model.export_savedmodel(modelpath, serving_fn,
-                            strip_default_attrs=True)
-    frozengraph_pathL = modelpath+"/"+"frozen_graph_plk_lower.pb"
-    frozengraph_pathU = modelpath+"/"+"frozen_graph_plk_upper.pb"
-    if args.do_lower: frozen_graph_maker(savedmodel_path,frozengraph_pathL,'output_lower')
-    if args.do_upper: frozen_graph_maker(savedmodel_path,frozengraph_pathU,'output_upper')
-    extract_weights(frozengraph_pathL,frozengraph_pathU,grp)
-    ncfile.close()
-
+    for groupname, name, graphname, ngpt in [("SSA",    "SSA",    "ssa", 224),
+                                             ("TSW",    "tauSW",  "tsw", 224),
+                                             ("TLW",    "tauLW",  "tlw", 256),
+                                             ("Planck", "Planck", "plk", 768)]:
+        grp = ncfile.createGroup(groupname)
+        modelpath = args.trainpath+"%s/%s/"%(dirname,name)  
+        serving_fn = tf.estimator.export.build_raw_serving_input_receiver_fn(get_placeholderdict(name))    
+        model = get_model(modelpath, name, ngpt, nodes)
+        savedmodel_path = model.export_savedmodel(modelpath, serving_fn,
+                                                  strip_default_attrs=True)
+        frozengraph_path_lwr = modelpath+"/"+"frozen_graph_%s_lower.pb"%graphname
+        frozengraph_path_upr = modelpath+"/"+"frozen_graph_%s_upper.pb"%graphname
+        if args.do_lower: frozen_graph_maker(savedmodel_path, frozengraph_path_lwr, 'output_lower')
+        if args.do_upper: frozen_graph_maker(savedmodel_path, frozengraph_path_upr, 'output_upper')
+        extract_weights(frozengraph_path_lwr, frozengraph_path_upr, grp)
+        tf.keras.backend.clear_session()    
+ 
 if __name__ == "__main__":
-    main_loop()
+    for nodes,dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+        main_extractweights(dirname, nodes)
+ 
