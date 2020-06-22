@@ -150,8 +150,8 @@ def main_extractweights(dirname, nodes):
         model = get_model(modelpath, name, ngpt, nodes, keys)
         savedmodel_path = model.export_savedmodel(modelpath, serving_fn,
                                                   strip_default_attrs=True)
-        frozengraph_path_lwr = modelpath+"/"+"frozen_graph_%s_lower.pb"%graphname
-        frozengraph_path_upr = modelpath+"/"+"frozen_graph_%s_upper.pb"%graphname
+        frozengraph_path_lwr = modelpath+"/lower_atm/"+"frozen_graph_%s.pb"%graphname
+        frozengraph_path_upr = modelpath+"/upper_atm/"+"frozen_graph_%s.pb"%graphname
         if args.do_lower: frozen_graph_maker(savedmodel_path, frozengraph_path_lwr, 'output_lower')
         if args.do_upper: frozen_graph_maker(savedmodel_path, frozengraph_path_upr, 'output_upper')
         extract_weights(frozengraph_path_lwr, frozengraph_path_upr, grp)

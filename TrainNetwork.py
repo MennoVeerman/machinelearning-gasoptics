@@ -2,7 +2,7 @@ import os
 import tensorflow as tf
 import numpy as np
 import argparse
-
+import sys
 parser = argparse.ArgumentParser()
 parser.add_argument('--batchsize', default=128, type=int)
 parser.add_argument('--do_upper',  default=False, action='store_true')
@@ -11,10 +11,11 @@ parser.add_argument('--datapath',  default='./', type=str)
 parser.add_argument('--trainpath', default='./', type=str)
 parser.add_argument('--filecount', default=1 , type=int)
 parser.add_argument('--trainsize', default=1000*72*0.9, type=int)
+parser.add_argument('--nepochs',   default=650, type=int)
 args = parser.parse_args()
 
-decaystep = args.trainsize/args.batchsize * 10 * (args.do_upper+args.do_lower) 
-steps = int(658 * (args.do_upper+args.do_lower) * args.trainsize/args.batchsize)
+decaystep = args.trainsize/args.batchsize * 10 
+steps = int(args.nepochs * args.trainsize/args.batchsize)
     
 tf.logging.set_verbosity(tf.logging.INFO)
 os.environ['KMP_BLOCKTIME'] = str(1)
@@ -52,8 +53,7 @@ def DNN_Regression(features,labels,mode,params):
     
     #Optionally, we can train either only the troposhere (<9948 Pa) or above
     if args.do_upper:
-        input_stack_upper = tf.boolean_mask(tf.stack([features[i] for i in params['keys']],axis=1),\
-                                            features['tropo'] < 0.,axis=0)
+        input_stack_upper = tf.stack([features[i] for i in params['keys']],axis=1)
         
         ft_means_upper = tf.constant(params["znorm"]["means_upper"][:nfeat], name='ft_mean_upr')
         ft_stdev_upper = tf.constant(params["znorm"]["stdev_upper"][:nfeat], name='ft_stdv_upr') 
@@ -78,8 +78,7 @@ def DNN_Regression(features,labels,mode,params):
         output_layer_upper = tf.add(tf.multiply(output_layer_upper_raw,lb_stdev_upper),lb_means_upper,name='output_upper')
 
     if args.do_lower:
-        input_stack_lower = tf.boolean_mask(tf.stack([features[i] for i in params['keys']],axis=1),\
-                                            features['tropo'] > 0.,axis=0)
+        input_stack_lower = tf.stack([features[i] for i in params['keys']],axis=1)
         
         ft_means_lower = tf.constant(params["znorm"]["means_lower"][:nfeat], name='ft_mean_lwr')
         ft_stdev_lower = tf.constant(params["znorm"]["stdev_lower"][:nfeat], name='ft_stdv_lwr')
@@ -106,20 +105,13 @@ def DNN_Regression(features,labels,mode,params):
     #setup decaying learning rate, every 10 epochs
     rate = tf.train.exponential_decay(params['learning_rate'], tf.train.get_global_step(), decaystep, 0.8, staircase=True)
     
-    if args.do_upper and args.do_lower:
-        output_layer_raw   = tf.concat([output_layer_upper_raw, output_layer_lower_raw], axis=0)
-        output_layer       = tf.concat([output_layer_upper, output_layer_lower], axis=0, name='output')
-        if do_train:   
-            labels_upr = tf.boolean_mask(labels[:], features['tropo']<0., axis=0)
-            labels_lwr = tf.boolean_mask(labels[:], features['tropo']>0., axis=0)
-            labels = tf.concat([labels_upr, labels_lwr], axis=0)
-    elif args.do_upper:
+    if args.do_upper:
         output_layer_raw   = tf.identity(output_layer_upper_raw)
         output_layer       = tf.identity(output_layer_upper, name='output')
         if do_train:
-            labels_upr = tf.boolean_mask(labels[:], features['tropo']<0., axis=0)
+            labels_upr = labels[:]
             labels = tf.identity(labels_upr)
-    elif args.do_lower:
+    else args.do_lower:
         output_layer_raw   = tf.identity(output_layer_lower_raw)
         output_layer       = tf.identity(output_layer_lower, name='output')
         if do_train:
@@ -135,7 +127,7 @@ def DNN_Regression(features,labels,mode,params):
     loss  = tf.losses.mean_squared_error(labels, output_layer_raw, reduction=tf.losses.Reduction.MEAN)
     if args.do_upper: loss_upr = tf.losses.mean_squared_error(labels_upr, output_layer_upper_raw, reduction=tf.losses.Reduction.MEAN)
     if args.do_lower: loss_lwr = tf.losses.mean_squared_error(labels_lwr, output_layer_lower_raw, reduction=tf.losses.Reduction.MEAN)
-    metrics = {'MSE':tf.metrics.mean_squared_error(labels, output_layer_raw)}
+    metrics = {'eval_MSE':tf.metrics.mean_squared_error(labels, output_layer_raw)}
 
     if mode == tf.estimator.ModeKeys.EVAL:
         return tf.estimator.EstimatorSpec(
@@ -145,12 +137,6 @@ def DNN_Regression(features,labels,mode,params):
 
     tf.summary.scalar("MSE", loss)
 
-    if args.do_upper and args.do_lower: 
-        optimizer_upr = tf.train.AdamOptimizer(rate)
-        optimizer_lwr = tf.train.AdamOptimizer(rate)
-        train_op_upr  = optimizer_upr.minimize(loss_upr, global_step = tf.train.get_global_step())
-        train_op_lwr  = optimizer_lwr.minimize(loss_lwr, global_step = tf.train.get_global_step())
-        train_op      = tf.group(train_op_upr, train_op_lwr)
     elif args.do_upper: 
         optimizer_upr = tf.train.AdamOptimizer(rate)
         train_op      = optimizer_upr.minimize(loss_upr, global_step = tf.train.get_global_step())
@@ -162,8 +148,10 @@ def DNN_Regression(features,labels,mode,params):
             mode, loss=loss, train_op=train_op)
         
 def run_model(name, n_label, nodes, dirname):
-    trainnames = [args.datapath+"training%s_%s.tfrecords"%(i,name) for i in range(args.filecount)]
-    testnames  = [args.datapath+"testing_%s.tfrecords"%name]
+    if args.do_lower: lwrupr = 'lower'
+    if args.do_upper: lwrupr = 'upper'
+    trainnames = [args.datapath+"training%s_%s_%s.tfrecords"%(i,name,lwrupr) for i in range(args.filecount)]
+    testnames  = [args.datapath+"testing_%s_%s.tfrecords"%(name,lwrupr)]
     np.random.shuffle(trainnames)
     
     global keys, nfeat, nlabel
@@ -175,7 +163,7 @@ def run_model(name, n_label, nodes, dirname):
     if args.do_upper:
         znorm["means_upper"] = np.loadtxt(args.datapath+"means_upr_%s.txt"%name,dtype=np.float32)
         znorm["stdev_upper"] = np.loadtxt(args.datapath+"stdev_upr_%s.txt"%name,dtype=np.float32)    
-    if args.do_lower:
+    else args.do_lower:
         znorm["means_lower"] = np.loadtxt(args.datapath+"means_lwr_%s.txt"%name,dtype=np.float32)
         znorm["stdev_lower"] = np.loadtxt(args.datapath+"stdev_lwr_%s.txt"%name,dtype=np.float32)
 
@@ -193,11 +181,12 @@ def run_model(name, n_label, nodes, dirname):
     config.intra_op_parallelism_threads = np.int32(os.environ['OMP_NUM_THREADS'])
     config.inter_op_parallelism_threads = 1
     
-    myconfig = tf.estimator.RunConfig(session_config=config, save_summary_steps=10000,\
-                save_checkpoints_steps=10000, log_step_count_steps=1000)     
+    myconfig = tf.estimator.RunConfig(session_config=config, save_summary_steps=steps/args.nepochs,\
+                save_checkpoints_steps=steps/args.nepochs, log_step_count_steps=1000)     
 
-    output_dir = args.trainpath+dirname+name
-
+    output_dir = args.trainpath+dirname+name+"/"
+    if args.do_lower: output_dir += "lower_atm"
+    if args.do_upper: output_dir += "upper_atm"
     DNNR = tf.estimator.Estimator(
       model_fn  = DNN_Regression,
       params    = hyperparams,
@@ -216,7 +205,8 @@ def main(nodes, dirname):
     run_model("SSA",    224, nodes, dirname)
 
 if __name__ == '__main__':
+    if args.do_lower and args.do_upper:
+        sys.exit('Cannot do both lower and upper atmosphere at the same time -- exiting')
+
     for nodes, dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
         main(nodes, dirname)
-
-
