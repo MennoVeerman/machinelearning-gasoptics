@@ -83,7 +83,7 @@ def read_normalize_keys(name):
         np.savetxt(args.datapath+"stdev_upr_%s.txt"%name,stdv_upr)
         data[above,ninp+1:] = (data[above,ninp+1:] -\
             mean_upr[np.newaxis,ninp+1:])/stdv_upr[np.newaxis,ninp+1:]
- 
+        
     #below tropopause (1)
     if np.max(mask) == 1:
         below = (mask == 1)
@@ -102,8 +102,13 @@ def read_normalize_keys(name):
         keepzeromask = ((mask == -1)[:,np.newaxis]*1 + keepzero[np.newaxis,:]*1) == 2  
         data[keepzeromask] = 0.
 
-    np.random.shuffle(data)
-    return np.array(data),keys
+    ##seperate lower and upper troposhere:
+    if np.max(mask) == 1:  data_lower = data[below]
+    if np.min(mask) == -1: data_upper = data[above]
+
+    np.random.shuffle(data_lower)    
+    np.random.shuffle(data_upper)
+    return data_lower, data_upper, keys
 
 
 def _float_feature(value):
@@ -130,15 +135,24 @@ def write_tfrecords(inpdata,fname):
 
 def write_main(files, name, ntrain=0.9):
     global keylist
-    data,keylist = read_normalize_keys(name)
+    data_lower, data_upper, keylist = read_normalize_keys(name)
     write_keys(keylist,name)
-    np.random.shuffle(data)
-    ltrain = int(len(data) * ntrain)    
-    subsubprocesses = [mp.Process(target=write_tfrecords,args=(data[ltrain:],args.datapath+'testing_%s.tfrecords'%name))]
+    subsubprocesses = []
+    if len(data_lower) > 0:
+        ltrain = int(len(data_lower) * ntrain)    
+        subsubprocesses = [mp.Process(target=write_tfrecords,args=(data_lower[ltrain:],args.datapath+'testing_%s_lower.tfrecords'%name))]
+    
+        lsub = ltrain//args.filecount
+        for i in range(args.filecount):
+            subsubprocesses += [mp.Process(target=write_tfrecords, args=(data_lower[lsub*i:lsub*(i+1)], args.datapath+'training%s_%s_lower.tfrecords'%(i,name)))]
 
-    lsub = ltrain//args.filecount
-    for i in range(args.filecount):
-        subsubprocesses += [mp.Process(target=write_tfrecords, args=(data[lsub*i:lsub*(i+1)], args.datapath+'training%s_%s.tfrecords'%(i,name)))]
+    if len(data_upper) > 0:
+        ltrain = int(len(data_upper) * ntrain)    
+        subsubprocesses = [mp.Process(target=write_tfrecords,args=(data_upper[ltrain:],args.datapath+'testing_%s_upper.tfrecords'%name))]
+    
+        lsub = ltrain//args.filecount
+        for i in range(args.filecount):
+            subsubprocesses += [mp.Process(target=write_tfrecords, args=(data_upper[lsub*i:lsub*(i+1)], args.datapath+'training%s_%s_upper.tfrecords'%(i,name)))]
 
     for sp in subsubprocesses:
         sp.start()
