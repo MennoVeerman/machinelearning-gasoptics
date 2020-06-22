@@ -26,12 +26,12 @@ os.environ['OMP_NUM_THREADS'] = str(15)
 #Setup parse function, which returns each sample in the format dict(features),labels
 def _parse_function(protoexample):
     feature = {}
-    for i in range(nlabel+nfeat+1): 
+    for i in range(nlabel+nfeat): 
         feature[keys[i]] = tf.FixedLenFeature([],tf.float32)
     parsefeat = tf.parse_single_example(protoexample,feature)
     labels = []    
     for i in range(nlabel):
-        labels += [parsefeat.pop(keys[nfeat+1+i])] 
+        labels += [parsefeat.pop(keys[nfeat+i])] 
     return parsefeat,labels
 
 #Read data from TFRecord files
@@ -111,11 +111,11 @@ def DNN_Regression(features,labels,mode,params):
         if do_train:
             labels_upr = labels[:]
             labels = tf.identity(labels_upr)
-    else args.do_lower:
+    if args.do_lower:
         output_layer_raw   = tf.identity(output_layer_lower_raw)
         output_layer       = tf.identity(output_layer_lower, name='output')
         if do_train:
-            labels_lwr = tf.boolean_mask(labels[:], features['tropo']>0., axis=0)
+            labels_lwr = labels[:]
             labels  = tf.identity(labels_lwr)
 
     if mode == tf.estimator.ModeKeys.PREDICT:
@@ -137,10 +137,10 @@ def DNN_Regression(features,labels,mode,params):
 
     tf.summary.scalar("MSE", loss)
 
-    elif args.do_upper: 
+    if args.do_upper: 
         optimizer_upr = tf.train.AdamOptimizer(rate)
         train_op      = optimizer_upr.minimize(loss_upr, global_step = tf.train.get_global_step())
-    elif args.do_lower:
+    if args.do_lower:
         optimizer_lwr = tf.train.AdamOptimizer(rate)
         train_op      = optimizer_lwr.minimize(loss_lwr, global_step = tf.train.get_global_step())
 
@@ -163,7 +163,7 @@ def run_model(name, n_label, nodes, dirname):
     if args.do_upper:
         znorm["means_upper"] = np.loadtxt(args.datapath+"means_upr_%s.txt"%name,dtype=np.float32)
         znorm["stdev_upper"] = np.loadtxt(args.datapath+"stdev_upr_%s.txt"%name,dtype=np.float32)    
-    else args.do_lower:
+    if args.do_lower:
         znorm["means_lower"] = np.loadtxt(args.datapath+"means_lwr_%s.txt"%name,dtype=np.float32)
         znorm["stdev_lower"] = np.loadtxt(args.datapath+"stdev_lwr_%s.txt"%name,dtype=np.float32)
 

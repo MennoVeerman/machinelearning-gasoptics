@@ -31,15 +31,15 @@ def read_normalize_keys(name):
     optprop  = np.transpose(optprop)
     
     if name == "Planck":
-        data  = np.zeros((optprop.shape[0], ninp+1+ngpt*3))
+        data  = np.zeros((optprop.shape[0], ninp+ngpt*3))
         optprop_inc  = np.transpose(nc_opt.variables[name+"_levinc"][:].reshape(ngpt,nlay*ncol))
         optprop_dec  = np.transpose(nc_opt.variables[name+"_levdec"][:].reshape(ngpt,nlay*ncol))
-        data[:,ninp+1+ngpt*0:ninp+1+ngpt*1] =  optprop[:]
-        data[:,ninp+1+ngpt*1:ninp+1+ngpt*2] =  optprop_inc[:]
-        data[:,ninp+1+ngpt*2:ninp+1+ngpt*3] =  optprop_dec[:]
+        data[:,ninp+ngpt*0:ninp+ngpt*1] =  optprop[:]
+        data[:,ninp+ngpt*1:ninp+ngpt*2] =  optprop_inc[:]
+        data[:,ninp+ngpt*2:ninp+ngpt*3] =  optprop_dec[:]
     else:
-        data  = np.zeros((optprop.shape[0], ninp+1+ngpt))
-        data[:,ninp+1:] =  optprop[:]
+        data  = np.zeros((optprop.shape[0], ninp+ngpt))
+        data[:,ninp:] =  optprop[:]
 
     data[:,0] = nc_atm.variables['vmr_h2o'][:].reshape(nlay*ncol)
     if args.do_o3: 
@@ -57,14 +57,14 @@ def read_normalize_keys(name):
         keys += ["lbl"+"%03d"%i for i in range(1,ngpt+1)]
     mask  = np.where(data[:,1] < 9948.431564193395,-1,1)
      
-    data[:,ninp+1:] = np.where(data[:,ninp+1:]==0, 1e-12, data[:,ninp+1:])
+    data[:,ninp:] = np.where(data[:,ninp:]==0, 1e-12, data[:,ninp:])
     
     if np.min(mask) == -1:
         keepzero = (np.max(data[mask==-1],axis=0) == 1e-12)
-        keepzero[:ninp+1] = False
+        keepzero[:ninp] = False
         
     if args.log_output and name != "SSA":
-        data[:,ninp+1:] = fast_log(data[:,ninp+1:])
+        data[:,ninp:] = fast_log(data[:,ninp:])
         
     if args.log_input:
         data[:,0]  = fast_log(data[:,0]) 
@@ -81,8 +81,8 @@ def read_normalize_keys(name):
         mean_upr[mean_upr==1] = 0.
         np.savetxt(args.datapath+"means_upr_%s.txt"%name,mean_upr)
         np.savetxt(args.datapath+"stdev_upr_%s.txt"%name,stdv_upr)
-        data[above,ninp+1:] = (data[above,ninp+1:] -\
-            mean_upr[np.newaxis,ninp+1:])/stdv_upr[np.newaxis,ninp+1:]
+        data[above,ninp:] = (data[above,ninp:] -\
+            mean_upr[np.newaxis,ninp:])/stdv_upr[np.newaxis,ninp:]
         
     #below tropopause (1)
     if np.max(mask) == 1:
@@ -93,8 +93,8 @@ def read_normalize_keys(name):
         mean_lwr[mean_lwr==1] = 0.
         np.savetxt(args.datapath+"means_lwr_%s.txt"%name,mean_lwr)
         np.savetxt(args.datapath+"stdev_lwr_%s.txt"%name,stdv_lwr)
-        data[below,ninp+1:] = (data[below,ninp+1:] -\
-            mean_lwr[np.newaxis,ninp+1:])/stdv_lwr[np.newaxis,ninp+1:]
+        data[below,ninp:] = (data[below,ninp:] -\
+            mean_lwr[np.newaxis,ninp:])/stdv_lwr[np.newaxis,ninp:]
         
     data[:,ninp] = mask 
     
