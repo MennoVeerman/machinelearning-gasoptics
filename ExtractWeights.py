@@ -5,8 +5,11 @@ from tensorflow.python.platform import gfile
 from tensorflow.python.framework import tensor_util
 from TrainNetwork import DNN_Regression
 import argparse
+from main import *
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--args_from_file', default=False, action='store_true')
+parser.add_argument('--args_inp_file',  default='./arguments.txt', type=str)
 parser.add_argument('--do_upper',  default=False, action='store_true')
 parser.add_argument('--do_lower',  default=False, action='store_true')
 parser.add_argument('--datapath',  default='./', type=str)
@@ -158,6 +161,9 @@ def main_extractweights(dirname, nodes):
         tf.keras.backend.clear_session()    
  
 if __name__ == "__main__":
+    if args.args_from_file:
+        read_run_arguments(args, args.args_inp_file)
+    
     for nodes,dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
         main_extractweights(dirname, nodes)
  

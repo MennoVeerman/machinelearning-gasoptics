@@ -2,26 +2,30 @@ import os
 import tensorflow as tf
 import numpy as np
 import argparse
-import sys
+from main import *
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--batchsize', default=128, type=int)
-parser.add_argument('--do_upper',  default=False, action='store_true')
-parser.add_argument('--do_lower',  default=False, action='store_true')
-parser.add_argument('--datapath',  default='./', type=str)
-parser.add_argument('--trainpath', default='./', type=str)
-parser.add_argument('--filecount', default=1 , type=int)
-parser.add_argument('--trainsize', default=1000*72*0.9, type=int)
-parser.add_argument('--nepochs',   default=650, type=int)
+parser.add_argument('--args_from_file', default=False, action='store_true')
+parser.add_argument('--args_inp_file',  default='./arguments.txt', type=str)
+parser.add_argument('--batchsize',      default=128, type=int)
+parser.add_argument('--do_upper',       default=False, action='store_true')
+parser.add_argument('--do_lower',       default=False, action='store_true')
+parser.add_argument('--datapath',       default='./', type=str)
+parser.add_argument('--trainpath',      default='./', type=str)
+parser.add_argument('--filecount',      default=1 , type=int)
+parser.add_argument('--trainsize_lwr',  default=1000*72*0.9, type=int)
+parser.add_argument('--trainsize_upr',  default=1000*72*0.9, type=int)
+parser.add_argument('--nepochs',        default=650, type=int)
 args = parser.parse_args()
 
-decaystep = args.trainsize/args.batchsize * 10 
-steps = int(args.nepochs * args.trainsize/args.batchsize)
+
     
 tf.logging.set_verbosity(tf.logging.INFO)
 os.environ['KMP_BLOCKTIME'] = str(1)
 os.environ['KMP_SETTINGS'] = str(1)
 os.environ['KMP_AFFINITY'] = 'granularity=fine,compact,1,0'
 os.environ['OMP_NUM_THREADS'] = str(15)
+
 
 #Setup parse function, which returns each sample in the format dict(features),labels
 def _parse_function(protoexample):
@@ -199,14 +203,30 @@ def run_model(name, n_label, nodes, dirname):
     tf.estimator.train_and_evaluate(DNNR, train_spec, eval_spec)
   
 def main(nodes, dirname): 
+    global decaystep, steps
+    if args.do_lower: size = args.trainsize_lwr
+    if args.do_upper: size = args.trainsize_upr
+    decaystep = size/args.batchsize * 10 
+    steps = int(args.nepochs * size/args.batchsize)    
+    
     run_model("Planck", 768, nodes, dirname)
     run_model("tauLW",  256, nodes, dirname)
     run_model("tauSW",  224, nodes, dirname)
     run_model("SSA",    224, nodes, dirname)
 
 if __name__ == '__main__':
+    if args.args_from_file:
+        read_run_arguments(args, args.args_inp_file)
+        
     if args.do_lower and args.do_upper:
-        sys.exit('Cannot do both lower and upper atmosphere at the same time -- exiting')
+        args.do_lower = False 
+        for nodes, dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+            main(nodes, dirname)
 
-    for nodes, dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
-        main(nodes, dirname)
+        args.do_lower = True; args.do_upper = False
+        for nodes, dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+            main(nodes, dirname)
+
+    else:
+        for nodes, dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+            main(nodes, dirname)

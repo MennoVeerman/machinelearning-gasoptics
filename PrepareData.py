@@ -3,8 +3,11 @@ import numpy as np
 import tensorflow as tf
 import multiprocessing as mp
 import argparse
+from main import *
 
 parser = argparse.ArgumentParser()
+parser.add_argument('--args_from_file', default=False, action='store_true')
+parser.add_argument('--args_inp_file',  default='./arguments.txt', type=str)
 parser.add_argument('--datapath',   default='./', type=str)
 parser.add_argument('--atmfile',    default='rte_rrtmgp_input.nc', type=str)
 parser.add_argument('--optfile',    default='rte_rrtmgp_output.nc', type=str)
@@ -14,6 +17,7 @@ parser.add_argument('--log_output', default=False, action='store_true')
 parser.add_argument('--do_o3',      default=False, action='store_true')
 args = parser.parse_args()
 
+         
 def fast_log(x):
     x = np.sqrt(x)
     x = np.sqrt(x)
@@ -146,6 +150,8 @@ def write_main(files, name, ntrain=0.9):
         for i in range(args.filecount):
             subsubprocesses += [mp.Process(target=write_tfrecords, args=(data_lower[lsub*i:lsub*(i+1)], args.datapath+'training%s_%s_lower.tfrecords'%(i,name)))]
 
+        if args.args_from_file: write_run_arguments(args, ['do_lower', 'trainsize_lwr'], [True, ltrain])
+        
     if len(data_upper) > 0:
         ltrain = int(len(data_upper) * ntrain)    
         subsubprocesses = [mp.Process(target=write_tfrecords,args=(data_upper[ltrain:],args.datapath+'testing_%s_upper.tfrecords'%name))]
@@ -153,13 +159,19 @@ def write_main(files, name, ntrain=0.9):
         lsub = ltrain//args.filecount
         for i in range(args.filecount):
             subsubprocesses += [mp.Process(target=write_tfrecords, args=(data_upper[lsub*i:lsub*(i+1)], args.datapath+'training%s_%s_upper.tfrecords'%(i,name)))]
+        
+        if args.args_from_file: write_run_arguments(args, ['do_upper', 'trainsize_upr'], [True, ltrain])
 
     for sp in subsubprocesses:
         sp.start()
     for sp in subsubprocesses:
         sp.join()
 
+    
 if __name__ == '__main__':  
+    if args.args_from_file:
+        read_run_arguments(args, args.args_inp_file)
+
     subprocesses = []
     for name in ["Planck","tauLW","tauSW","SSA"]:
         subprocesses += [mp.Process(target=write_main, args=(args.datapath,name))]
