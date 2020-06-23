@@ -25,7 +25,9 @@ if __name__ == "__main__":
     create_run_arguments(filename,
                          ['filecount','datapath','trainpath',
                           'log_input','log_output','do_o3'],
-                         [5, "data/", "train/", True, False, True])
+                         [5, '"data/"', '"train/"', True, False, True])
     
-    subprocess.call(['python', 'PrepateData.py', '--args_from_file', 'True', '--args_inp_file', 'arguments.txt'])
+    subprocess.call(['python', 'PrepareData.py', '--args_from_file', '--args_inp_file=arguments.txt'])
+    subprocess.call(['python', 'TrainNetwork.py', '--args_from_file', '--args_inp_file=arguments.txt'])
+    subprocess.call(['python', 'ExtractWeights.py', '--args_from_file', '--args_inp_file=arguments.txt'])
             

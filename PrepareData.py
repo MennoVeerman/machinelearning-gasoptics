@@ -17,7 +17,7 @@ parser.add_argument('--log_output', default=False, action='store_true')
 parser.add_argument('--do_o3',      default=False, action='store_true')
 args = parser.parse_args()
 
-         
+
 def fast_log(x):
     x = np.sqrt(x)
     x = np.sqrt(x)
