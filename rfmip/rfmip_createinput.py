@@ -13,7 +13,6 @@ iexpt = args.iexpt
 nfile = args.nfile
 frand = args.frand
 finvt = args.finvt
-
 float_type = 'f8'
 band_lw = 16
 band_sw = 14
