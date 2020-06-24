@@ -30,14 +30,14 @@ def read_normalize_keys(name):
     nc_atm   = nc.Dataset(args.atmfile)
     nc_opt   = nc.Dataset(args.optfile)
     optprop  = nc_opt.variables[name + (name=="Plank")*"_lay"][:]
-    ngpt,nlay,ncol = optprop.shape
-    optprop  = optprop.reshape(ngpt, nlay*ncol)
+    niter,ngpt,nlay,ncol = optprop.shape
+    optprop  = np.swapaxes(optprop,0,1).reshape(ngpt, niter*nlay*ncol)
     optprop  = np.transpose(optprop)
     
     if name == "Planck":
         data  = np.zeros((optprop.shape[0], ninp+ngpt*3))
-        optprop_inc  = np.transpose(nc_opt.variables[name+"_levinc"][:].reshape(ngpt,nlay*ncol))
-        optprop_dec  = np.transpose(nc_opt.variables[name+"_levdec"][:].reshape(ngpt,nlay*ncol))
+        optprop_inc  = np.transpose(np.swapaxes(nc_opt.variables[name+"_levinc"][:],0,1).reshape(ngpt,niter*nlay*ncol))
+        optprop_dec  = np.transpose(np.swapaxes(nc_opt.variables[name+"_levdec"][:],0,1).reshape(ngpt,niter*nlay*ncol))
         data[:,ninp+ngpt*0:ninp+ngpt*1] =  optprop[:]
         data[:,ninp+ngpt*1:ninp+ngpt*2] =  optprop_inc[:]
         data[:,ninp+ngpt*2:ninp+ngpt*3] =  optprop_dec[:]
@@ -45,16 +45,16 @@ def read_normalize_keys(name):
         data  = np.zeros((optprop.shape[0], ninp+ngpt))
         data[:,ninp:] =  optprop[:]
 
-    data[:,0] = nc_atm.variables['vmr_h2o'][:].reshape(nlay*ncol)
+    data[:,0] = nc_atm.variables['vmr_h2o'][:].reshape(niter*nlay*ncol)
     if args.do_o3: 
-        data[:,1] = nc_atm.variables['vmr_o3'][:].reshape(nlay*ncol)
-    data[:,1+args.do_o3] = nc_atm.variables['p_lay'][:].reshape(nlay*ncol)
-    data[:,2+args.do_o3] = nc_atm.variables['t_lay'][:].reshape(nlay*ncol)
+        data[:,1] = nc_atm.variables['vmr_o3'][:].reshape(niter*nlay*ncol)
+    data[:,1+args.do_o3] = nc_atm.variables['p_lay'][:].reshape(niter*nlay*ncol)
+    data[:,2+args.do_o3] = nc_atm.variables['t_lay'][:].reshape(niter*nlay*ncol)
 
     if name == "Planck":
         keys = ['h2o']+['o3']*args.do_o3+['p_lay','t_lay','t_lev_bottom','t_lev_top','tropo']
-        data[:,3+args.do_o3] = nc_atm.variables['t_lev'][:-1].reshape(nlay*ncol)
-        data[:,4+args.do_o3] = nc_atm.variables['t_lev'][1:].reshape(nlay*ncol)
+        data[:,3+args.do_o3] = nc_atm.variables['t_lev'][:-1].reshape(niter*nlay*ncol)
+        data[:,4+args.do_o3] = nc_atm.variables['t_lev'][1:].reshape(niter*nlay*ncol)
         keys += ["lbl"+"%03d"%i for i in range(1,ngpt*3+1)]
     else:
         keys = ['h2o']+['o3']*args.do_o3+['p_lay','t_lay','tropo']

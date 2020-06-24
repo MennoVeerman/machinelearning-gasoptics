@@ -27,9 +27,9 @@ subprocess.call(['python', 'rfmip_createinput.py', '--frand', '--finvt', '--nfil
 #run rrtmgp
 for ifile in range(nfile):
     shutil.copyfile('data/rte_rrtmgp_input_{:03d}.nc'.format(ifile), 'rte_rrtmgp_input.nc')
-    subprocess.call(['./test_rte_rrtmgp', '--no-cloud-optics'])
+    subprocess.call(['./test_rte_rrtmgp', '--no-cloud-optics', '--no-fluxes', '--output-optical'])
     shutil.move('rte_rrtmgp_output.nc', 'data/rte_rrtmgp_output_{:03d}.nc'.format(ifile))
 
-os.system('ncecat data/*input*  -O inputs.nc')
-os.system('ncecat data/*output* -O outputs.nc')
+os.system('ncecat data/*input*  -u iter -O inputs.nc')
+os.system('ncecat data/*output* -u iter -O outputs.nc')
 
