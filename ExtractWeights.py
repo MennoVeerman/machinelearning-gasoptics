@@ -7,15 +7,6 @@ from TrainNetwork import DNN_Regression
 import argparse
 from main import *
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--args_from_file', default=False, action='store_true')
-parser.add_argument('--args_inp_file',  default='./arguments.txt', type=str)
-parser.add_argument('--do_upper',  default=False, action='store_true')
-parser.add_argument('--do_lower',  default=False, action='store_true')
-parser.add_argument('--datapath',  default='./', type=str)
-parser.add_argument('--trainpath', default='./', type=str)
-args = parser.parse_args()
-
 ### dictionary containing all means and st_devs
 def get_znorm(name):
     znorm={}
@@ -38,7 +29,8 @@ def get_model(modelpath, name, ngpt, nodes, keys):
             'learning_rate'      : 0.01,
             'znorm'              : znorm,
             'keys'               : keys,
-            }
+            'argparser'          : args}
+
     model = tf.estimator.Estimator(
     model_fn = DNN_Regression,
     params = hyperparameters,
@@ -67,7 +59,7 @@ def frozen_graph_maker(export_dir, output_graph, output_node):
 def find_idx(namelist, name):
     return [namelist.index(s) for s in namelist if name in s]
     
-def extract_weights(graphpath_lwr, graphpath_upr, ncgrp):
+def extract_weights(graphpath_lwr, graphpath_upr, ncgrp, nodes):
     graphs = []
     if args.do_lower: 
         graphs += [(graphpath_lwr,'_lower')]
@@ -83,14 +75,14 @@ def extract_weights(graphpath_lwr, graphpath_upr, ncgrp):
                 tf.import_graph_def(graph_def, name='')
                 const_nodes=[n for n in graph_def.node if n.op=='Const']
         nodenames = [const_nodes[n].name for n in range(len(const_nodes))]
-        
+        print(nodenames) 
         ft_mean = tensor_util.MakeNdarray(const_nodes[find_idx(nodenames, 'ft_mean')[0]].attr['value'].tensor)
         ft_stdv = tensor_util.MakeNdarray(const_nodes[find_idx(nodenames, 'ft_stdv')[0]].attr['value'].tensor)
         lb_mean = tensor_util.MakeNdarray(const_nodes[find_idx(nodenames, 'lb_mean')[0]].attr['value'].tensor)
         lb_stdv = tensor_util.MakeNdarray(const_nodes[find_idx(nodenames, 'lb_stdv')[0]].attr['value'].tensor)
         n_in  = len(ft_mean)
         n_out = len(lb_mean)        
-        if uplow == "_lower":
+        if uplow == graphs[0][1]:
             ncgrp.createDimension("Nin",n_in)
             ncgrp.createDimension("Nout",n_out)    
             
@@ -140,30 +132,61 @@ def extract_weights(graphpath_lwr, graphpath_upr, ncgrp):
        
 def main_extractweights(dirname, nodes):
     ncfile = nc.Dataset(args.trainpath+"weights_%s.nc"%dirname[3:-1], "w")    
+    ncfile.createDimension('nlayers', len(nodes))
+    ncfile.createDimension('nlayer1', (nodes+[0,0,0])[0])
+    ncfile.createDimension('nlayer2', (nodes+[0,0,0])[1])
+    ncfile.createDimension('nlayer3', (nodes+[0,0,0])[2])
+    ncfile.createDimension('nout_sw', 224)
+    ncfile.createDimension('nout_lw', 256)
 
     for groupname, name, graphname, ngpt in [("SSA",    "SSA",    "ssa", 224),
                                              ("TSW",    "tauSW",  "tsw", 224),
                                              ("TLW",    "tauLW",  "tlw", 256),
                                              ("Planck", "Planck", "plk", 768)]:
         keys  = open(args.datapath+'keylist_%s.txt'%name,'r').readline().split(',')[:-1]
-        keys  = keys[:-(ngpt+1)] 
+        if name == 'SSA':
+            ngases = len(keys)-ngpt-3
+        keys  = keys[:-(ngpt)] 
         grp = ncfile.createGroup(groupname)
-        modelpath = args.trainpath+"%s/%s/"%(dirname,name)  
+        modelpath = args.trainpath+"%s/%s"%(dirname,name)  
         serving_fn = tf.estimator.export.build_raw_serving_input_receiver_fn(get_placeholderdict(name, keys))    
-        model = get_model(modelpath, name, ngpt, nodes, keys)
-        savedmodel_path = model.export_savedmodel(modelpath, serving_fn,
-                                                  strip_default_attrs=True)
-        frozengraph_path_lwr = modelpath+"/lower_atm/"+"frozen_graph_%s.pb"%graphname
-        frozengraph_path_upr = modelpath+"/upper_atm/"+"frozen_graph_%s.pb"%graphname
-        if args.do_lower: frozen_graph_maker(savedmodel_path, frozengraph_path_lwr, 'output_lower')
-        if args.do_upper: frozen_graph_maker(savedmodel_path, frozengraph_path_upr, 'output_upper')
-        extract_weights(frozengraph_path_lwr, frozengraph_path_upr, grp)
+        n_do = args.do_upper + args.do_lower
+        if args.do_lower:
+            if n_do == 2: args.do_upper=False
+            model_lwr = get_model(modelpath+"/lower_atm", name, ngpt, nodes, keys)
+            frozengraph_path_lwr = modelpath+"/lower_atm/"+"frozen_graph_%s.pb"%graphname
+            savedmodel_path = model_lwr.export_savedmodel(modelpath+"/lower_atm", serving_fn,
+                                                          strip_default_attrs=True)
+            frozen_graph_maker(savedmodel_path, frozengraph_path_lwr, 'output_lower')
+            if n_do ==2: args.do_upper=True
+
+        if args.do_upper: 
+            if n_do ==2: args.do_lower=False
+            model_upr = get_model(modelpath+"/upper_atm", name, ngpt, nodes, keys)
+            frozengraph_path_upr = modelpath+"/upper_atm/"+"frozen_graph_%s.pb"%graphname
+            savedmodel_path = model_upr.export_savedmodel(modelpath+"/upper_atm", serving_fn,
+                                                          strip_default_attrs=True)
+            frozen_graph_maker(savedmodel_path, frozengraph_path_upr, 'output_upper')
+            
+            if n_do ==2: args.do_lower=True
+        if "frozengraph_path_lwr" not in locals(): frozengraph_path_lwr = ""
+        if "frozengraph_path_upr" not in locals(): frozengraph_path_upr = ""
+        extract_weights(frozengraph_path_lwr, frozengraph_path_upr, grp, nodes)
         tf.keras.backend.clear_session()    
+    ncfile.createDimension('ngases', ngases)
  
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--args_from_file', default=False, action='store_true')
+    parser.add_argument('--args_inp_file',  default='./arguments.txt', type=str)
+    parser.add_argument('--do_upper',  default=False, action='store_true')
+    parser.add_argument('--do_lower',  default=False, action='store_true')
+    parser.add_argument('--datapath',  default='./', type=str)
+    parser.add_argument('--trainpath', default='./', type=str)
+    args = parser.parse_args()
+
     if args.args_from_file:
         read_run_arguments(args, args.args_inp_file)
-    
-    for nodes,dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+    for nodes,dirname in [([32],"1L-32/")]:#, ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
         main_extractweights(dirname, nodes)
  

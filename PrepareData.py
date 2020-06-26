@@ -9,8 +9,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--args_from_file', default=False, action='store_true')
 parser.add_argument('--args_inp_file',  default='./arguments.txt', type=str)
 parser.add_argument('--datapath',   default='./', type=str)
-parser.add_argument('--atmfile',    default='rte_rrtmgp_input.nc', type=str)
-parser.add_argument('--optfile',    default='rte_rrtmgp_output.nc', type=str)
+parser.add_argument('--atmfile',    default='inputs.nc', type=str)
+parser.add_argument('--optfile',    default='outputs.nc', type=str)
 parser.add_argument('--filecount',  default=1 , type=int)
 parser.add_argument('--log_input',  default=False, action='store_true')
 parser.add_argument('--log_output', default=False, action='store_true')
@@ -27,12 +27,17 @@ def fast_log(x):
 
 def read_normalize_keys(name):
     ninp = 3 + args.do_o3 + (name=="Planck") * 2
-    nc_atm   = nc.Dataset(args.atmfile)
-    nc_opt   = nc.Dataset(args.optfile)
-    optprop  = nc_opt.variables[name + (name=="Plank")*"_lay"][:]
+    nc_atm   = nc.Dataset(args.datapath+args.atmfile)
+    nc_opt   = nc.Dataset(args.datapath+args.optfile)
+    optprop  = nc_opt.variables[name + (name=="Planck")*"_lay"][:]
     niter,ngpt,nlay,ncol = optprop.shape
     optprop  = np.swapaxes(optprop,0,1).reshape(ngpt, niter*nlay*ncol)
     optprop  = np.transpose(optprop)
+    
+    if 'tau' in name:
+        plev = nc_atm.variables['p_lev'][:]
+        dp = (plev[:,1:,:]-plev[:,:-1,:]).reshape(niter*nlay*ncol)
+        optprop /= np.abs(dp[:,np.newaxis])
     
     if name == "Planck":
         data  = np.zeros((optprop.shape[0], ninp+ngpt*3))
@@ -50,16 +55,18 @@ def read_normalize_keys(name):
         data[:,1] = nc_atm.variables['vmr_o3'][:].reshape(niter*nlay*ncol)
     data[:,1+args.do_o3] = nc_atm.variables['p_lay'][:].reshape(niter*nlay*ncol)
     data[:,2+args.do_o3] = nc_atm.variables['t_lay'][:].reshape(niter*nlay*ncol)
+    
+        
 
     if name == "Planck":
-        keys = ['h2o']+['o3']*args.do_o3+['p_lay','t_lay','t_lev_bottom','t_lev_top','tropo']
-        data[:,3+args.do_o3] = nc_atm.variables['t_lev'][:-1].reshape(niter*nlay*ncol)
-        data[:,4+args.do_o3] = nc_atm.variables['t_lev'][1:].reshape(niter*nlay*ncol)
+        keys = ['h2o']+['o3']*args.do_o3+['p_lay','t_lay','t_lev_bottom','t_lev_top']
+        data[:,3+args.do_o3] = nc_atm.variables['t_lev'][:,:-1].reshape(niter*nlay*ncol)
+        data[:,4+args.do_o3] = nc_atm.variables['t_lev'][:,1:].reshape(niter*nlay*ncol)
         keys += ["lbl"+"%03d"%i for i in range(1,ngpt*3+1)]
     else:
-        keys = ['h2o']+['o3']*args.do_o3+['p_lay','t_lay','tropo']
+        keys = ['h2o']+['o3']*args.do_o3+['p_lay','t_lay']
         keys += ["lbl"+"%03d"%i for i in range(1,ngpt+1)]
-    mask  = np.where(data[:,1] < 9948.431564193395,-1,1)
+    mask  = np.where(data[:,1+args.do_o3] < 9948.431564193395,-1,1)
      
     data[:,ninp:] = np.where(data[:,ninp:]==0, 1e-12, data[:,ninp:])
     
@@ -100,8 +107,6 @@ def read_normalize_keys(name):
         data[below,ninp:] = (data[below,ninp:] -\
             mean_lwr[np.newaxis,ninp:])/stdv_lwr[np.newaxis,ninp:]
         
-    data[:,ninp] = mask 
-    
     if np.min(mask) == -1:    
         keepzeromask = ((mask == -1)[:,np.newaxis]*1 + keepzero[np.newaxis,:]*1) == 2  
         data[keepzeromask] = 0.
@@ -137,30 +142,31 @@ def write_tfrecords(inpdata,fname):
             writer.write(serialize_example(i))
     return
 
-def write_main(files, name, ntrain=0.9):
+def write_main(files, name, ntrain=0.95):
     global keylist
     data_lower, data_upper, keylist = read_normalize_keys(name)
     write_keys(keylist,name)
     subsubprocesses = []
     if len(data_lower) > 0:
+        print(len(data_lower))
         ltrain = int(len(data_lower) * ntrain)    
-        subsubprocesses = [mp.Process(target=write_tfrecords,args=(data_lower[ltrain:],args.datapath+'testing_%s_lower.tfrecords'%name))]
+        subsubprocesses += [mp.Process(target=write_tfrecords,args=(data_lower[ltrain:],args.datapath+'testing_%s_lower.tfrecords'%name))]
     
         lsub = ltrain//args.filecount
         for i in range(args.filecount):
             subsubprocesses += [mp.Process(target=write_tfrecords, args=(data_lower[lsub*i:lsub*(i+1)], args.datapath+'training%s_%s_lower.tfrecords'%(i,name)))]
 
-        if args.args_from_file: write_run_arguments(args, ['do_lower', 'trainsize_lwr'], [True, ltrain])
+        if args.args_from_file and name=="Planck": write_run_arguments(args.args_inp_file, ['do_lower', 'trainsize_lwr'], [True, ltrain])
         
     if len(data_upper) > 0:
         ltrain = int(len(data_upper) * ntrain)    
-        subsubprocesses = [mp.Process(target=write_tfrecords,args=(data_upper[ltrain:],args.datapath+'testing_%s_upper.tfrecords'%name))]
+        subsubprocesses += [mp.Process(target=write_tfrecords,args=(data_upper[ltrain:],args.datapath+'testing_%s_upper.tfrecords'%name))]
     
         lsub = ltrain//args.filecount
         for i in range(args.filecount):
             subsubprocesses += [mp.Process(target=write_tfrecords, args=(data_upper[lsub*i:lsub*(i+1)], args.datapath+'training%s_%s_upper.tfrecords'%(i,name)))]
         
-        if args.args_from_file: write_run_arguments(args, ['do_upper', 'trainsize_upr'], [True, ltrain])
+        if args.args_from_file and name=="Planck": write_run_arguments(args.args_inp_file, ['do_upper', 'trainsize_upr'], [True, ltrain])
 
     for sp in subsubprocesses:
         sp.start()
