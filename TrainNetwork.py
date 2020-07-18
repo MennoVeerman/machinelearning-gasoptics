@@ -2,7 +2,7 @@ import os
 import tensorflow as tf
 import numpy as np
 import argparse
-from main import *
+from RunArgs import *
     
 tf.logging.set_verbosity(tf.logging.INFO)
 os.environ['KMP_BLOCKTIME'] = str(1)
@@ -217,18 +217,22 @@ if __name__ == '__main__':
     args = parser.parse_args()
     if args.args_from_file:
         read_run_arguments(args, args.args_inp_file)
-        
+    
+    network_sizes = [([],"Linear/"), ([32],"1L-32/"), ([32,32],"2L-32_32/"),\
+                     ([64],"1L-64/"), ([64,64],"2L-64_64/"),\
+                     ([32,64,128],"3L-32_64_128/")]
+
     if args.do_lower and args.do_upper:
         args.do_lower = False 
-        for nodes, dirname in [([32],"1L-32/")]:#, ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+        for nodes, dirname in network_sizes: 
             main(nodes, dirname, args)
 
         args.do_lower = True; args.do_upper = False
-        for nodes, dirname in [([32],"1L-32/")]:#, ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+        for nodes, dirname in network_sizes]:
             main(nodes, dirname, args)
 
     else:
-        for nodes, dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+        for nodes, dirname in network_sizes:
             main(nodes, dirname, args)
 
 

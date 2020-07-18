@@ -2,8 +2,7 @@
 import numpy as np
 from shutil import copyfile
 import netCDF4 as nc
-path = "/archive/mveerman/machinelearning/rcemip_sim/"
-rfmippath = "../rfmip/"
+path = "/path/simulation/output/"
 
 float_type = "f8"
 Tsfc = 300
@@ -40,7 +39,7 @@ h2o = qv/(ep-ep*qv)
 h2o = np.maximum(h2o,wh2o_min) 
 
 ##########################
-nc_file_rfmip = nc.Dataset(rfmippath+'multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-1-2_none.nc', mode='r', datamodel='NETCDF4', clobber=False)
+nc_file_rfmip = nc.Dataset('multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-1-2_none.nc', mode='r', datamodel='NETCDF4', clobber=False)
 nc_file = nc.Dataset("rte_rrtmgp_input.nc", mode="w", datamodel="NETCDF4", clobber=True)
 
 iexpt = 0

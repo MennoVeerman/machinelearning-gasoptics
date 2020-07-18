@@ -5,7 +5,7 @@ from tensorflow.python.platform import gfile
 from tensorflow.python.framework import tensor_util
 from TrainNetwork import DNN_Regression
 import argparse
-from main import *
+from RunArgs import *
 
 ### dictionary containing all means and st_devs
 def get_znorm(name):
@@ -112,12 +112,15 @@ def extract_weights(graphpath_lwr, graphpath_upr, ncgrp, nodes):
         for i in range(len(wgth_idx)):
             idx  = wgth_idx[i]
             wgth = tensor_util.MakeNdarray(const_nodes[idx].attr['value'].tensor)
-            if idx   == wgth_idx[0]:
-                w = ncgrp.createVariable("wgth1"+uplow,np.float32,("Nl1","Nin"))
-            elif idx == wgth_idx[-1]:
-                w = ncgrp.createVariable("wgth"+str(len(wgth_idx))+uplow,np.float32,("Nout","Nl"+str(len(wgth_idx)-1)))
-            else:
-                w = ncgrp.createVariable("wgth"+str(i+1)+uplow,np.float32,("Nl"+str(i+1),"Nl"+str(i)))
+            if len(wgth_idx) ==1:
+                w = ncgrp.createVariable("wgth1"+uplow,np.float32,("Nout","Nin"))
+            else: 
+                if idx  == wgth_idx[0]:
+                    w = ncgrp.createVariable("wgth1"+uplow,np.float32,("Nl1","Nin"))
+                elif idx == wgth_idx[-1]:
+                    w = ncgrp.createVariable("wgth"+str(len(wgth_idx))+uplow,np.float32,("Nout","Nl"+str(len(wgth_idx)-1)))
+                else:
+                    w = ncgrp.createVariable("wgth"+str(i+1)+uplow,np.float32,("Nl"+str(i+1),"Nl"+str(i)))
             w[:] = np.transpose(wgth)
       
         #currently, we need to supply weights for both upper and lower atmosphere to the solver
@@ -132,7 +135,11 @@ def extract_weights(graphpath_lwr, graphpath_upr, ncgrp, nodes):
 
        
 def main_extractweights(dirname, nodes):
-    ncfile = nc.Dataset(args.trainpath+"weights_%s.nc"%dirname[3:-1], "w")    
+    if dirname == "Linear/":
+        wgth_name = "weights_%s.nc"%dirname[:-1]
+    else:
+        wgth_name = "weights_%s.nc"%dirname[3:-1]
+    ncfile = nc.Dataset(args.trainpath+wgth_name, "w")    
     ncfile.createDimension('nlayers', len(nodes))
     ncfile.createDimension('nlayer1', (nodes+[0,0,0])[0])
     ncfile.createDimension('nlayer2', (nodes+[0,0,0])[1])
@@ -188,6 +195,6 @@ if __name__ == "__main__":
 
     if args.args_from_file:
         read_run_arguments(args, args.args_inp_file)
-    for nodes,dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+    for nodes,dirname in [([], "Linear/"), ([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
         main_extractweights(dirname, nodes)
  

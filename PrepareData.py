@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 import multiprocessing as mp
 import argparse
-from main import *
+from RunArgs import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--args_from_file', default=False, action='store_true')
@@ -112,11 +112,16 @@ def read_normalize_keys(name):
         data[keepzeromask] = 0.
 
     ##seperate lower and upper troposhere:
-    if np.max(mask) == 1:  data_lower = data[below]
-    if np.min(mask) == -1: data_upper = data[above]
-
-    np.random.shuffle(data_lower)    
-    np.random.shuffle(data_upper)
+    if np.max(mask) == 1:  
+        data_lower = data[below]
+        np.random.shuffle(data_lower)    
+    else:
+        data_lower = []
+    if np.min(mask) == -1: 
+        data_upper = data[above]
+        np.random.shuffle(data_upper)
+    else:
+        data_upper = []
     return data_lower, data_upper, keys
 
 

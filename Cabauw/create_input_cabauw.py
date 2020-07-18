@@ -3,8 +3,7 @@ import numpy as np
 from shutil import copyfile
 import netCDF4 as nc
 #location of Cabauw output 
-path = "/archive/mveerman/machinelearning/cabauw_sim/"
-rfmippath = "../rfmip/"
+path = "path/simulation/output/"
 
 float_type = "f8"
 cp  = 1004.
@@ -34,7 +33,7 @@ pres_lev = np.append(pres_lev,np.reshape(pres_lay[:,-1]*2 - pres_lev[:,-1],(600,
 
 ##########################
 nc_file = nc.Dataset("rte_rrtmgp_input.nc", mode="w", datamodel="NETCDF4", clobber=True)
-nc_file_rfmip = nc.Dataset(rfmippath+'multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-1-2_none.nc', mode='r', datamodel='NETCDF4', clobber=False)
+nc_file_rfmip = nc.Dataset('multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-1-2_none.nc', mode='r', datamodel='NETCDF4', clobber=False)
 
 iexpt=0
 # load a couple of ncfiles (one file = 1 core - 16*16 columns)

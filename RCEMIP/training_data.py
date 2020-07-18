@@ -10,6 +10,7 @@ import urllib.request
 nfile=30
 dpath = "data"
 rrtmgp_path =  "/path/to/rrtmgp-rte-cpp/folder/"
+sim_path = "path/simulation/output/"
 
 def download_rfmip():
     conds_file      = "multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-1-2_none.nc"
@@ -27,6 +28,9 @@ if not os.path.exists('coefficients_lw.nc'): os.symlink(rrtmgp_coeff_dir+'rrtmgp
 if not os.path.exists('coefficients_sw.nc'): os.symlink(rrtmgp_coeff_dir+'rrtmgp-data-sw-g224-2018-12-04.nc', 'coefficients_sw.nc')
 if not os.path.exists('cloud_coefficients_sw.nc'): os.symlink(rrtmgp_cloud_dir+'rrtmgp-cloud-optics-coeffs-sw.nc', 'cloud_coefficients_sw.nc')
 if not os.path.exists('cloud_coefficients_lw.nc'): os.symlink(rrtmgp_cloud_dir+'rrtmgp-cloud-optics-coeffs-lw.nc', 'cloud_coefficients_lw.nc')
+
+if not os.path.exists('profiles.txt'): 
+    subprocess.call(['python', 'generate_profiles.py', '--simpath=%s'%(sim_path)]) 
 
 if len(glob.glob("multiple_inputs4MIPs_radiation_RFMIP*")) == 0:
     download_rfmip()
