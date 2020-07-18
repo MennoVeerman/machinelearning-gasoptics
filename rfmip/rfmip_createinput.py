@@ -1,18 +1,23 @@
 import numpy as np
 import netCDF4 as nc
 import argparse
+from multiprocessing import Process
 parser = argparse.ArgumentParser()
 parser.add_argument('--iexpt', default=0, type=int)
 parser.add_argument('--nfile', default=1, type=int)
+parser.add_argument('--dpath', default='dpath', type=str)
 parser.add_argument('--frand', default=False, action='store_true')
 parser.add_argument('--finvt', default=False, action='store_true')
+parser.add_argument('--ftrop', default=False, action='store_true')
 args = parser.parse_args()
 
 # Settings
 iexpt = args.iexpt
 nfile = args.nfile
+dpath = args.dpath
 frand = args.frand
 finvt = args.finvt
+ftrop = args.ftrop
 float_type = 'f8'
 band_lw = 16
 band_sw = 14
@@ -21,10 +26,15 @@ def new_preslev(plev, play):
     pmin = 1.005183574463
     nlev, ncol = plev.shape
     pnew = np.zeros(plev.shape)
-    pnew[0,:] = pmin
-    pnew[-1,:] = np.random.random(ncol)*2*(plev[-1,:] - play[-1,:])  + play[-1,:]
-    pnew[1:-1,:] = np.random.random((nlev-2, ncol))*(plev[2:,:] - plev[:-2,:])  + plev[:-2,:]
-    return np.sort(pnew,axis=0)
+    dp = 0
+    #in troposphere, enforce minimum layer thickness of 1 Pa (which is about 10cm at slp)
+    while dp<1:
+        pnew[0,:] = pmin
+        pnew[1:-1,:] = (0.05+.95*np.random.random((nlev-2, ncol)))*(plev[2:,:] - plev[:-2,:])  + plev[:-2,:]
+        pnew[-1,:] = (0.1+1.8*np.random.random(ncol))*(plev[-1,:] - pnew[-2,:])  + pnew[-2,:]
+        pnew=np.sort(pnew,axis=0)
+        dp = np.abs(pnew[1:]-pnew[:-1])[-35:].min()
+    return pnew
 
 def get_qsat(T,P):
     Tc = T - 273.15
@@ -32,11 +42,12 @@ def get_qsat(T,P):
     r = es/(P-es)
     return r,es
 
-for ifile in range(nfile):
+#for ifile in range(nfile):
+def create_file(ifile):
     # Save all the input data to NetCDF
-    nc_file = nc.Dataset('data2/rte_rrtmgp_input_{:03d}.nc'.format(ifile), mode='w', datamodel='NETCDF4', clobber=True)
+    nc_file = nc.Dataset(dpath+'/rte_rrtmgp_input_{:01d}.nc'.format(ifile), mode='w', datamodel='NETCDF4', clobber=True)
     nc_file_rfmip = nc.Dataset('multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-1-2_none.nc', mode='r', datamodel='NETCDF4', clobber=False)
-    
+    np.random.seed(ifile+(nfile==1)*np.random.randint(250,500)) 
     # Create a group for the radiation and set up the values.
     nc_file.createDimension('lay', nc_file_rfmip.dimensions['layer'].size)
     nc_file.createDimension('lev', nc_file_rfmip.dimensions['level'].size)
@@ -68,14 +79,11 @@ for ifile in range(nfile):
     nc_surface_albedo_dir = nc_file.createVariable('sfc_alb_dir', float_type, ('col', 'band_sw'))
     nc_surface_albedo_dif = nc_file.createVariable('sfc_alb_dif', float_type, ('col', 'band_sw'))
     
-    nc_surface_albedo_dir[:,:] = np.tile( (nc_file_rfmip.variables['surface_albedo'][:]) [:,None], (1, band_sw) )
-    nc_surface_albedo_dif[:,:] = np.tile( (nc_file_rfmip.variables['surface_albedo'][:]) [:,None], (1, band_sw) )
+    nc_surface_albedo_dir[:,:] = .07
+    nc_surface_albedo_dif[:,:] = .07
     
     nc_mu0 = nc_file.createVariable('mu0', float_type, ('col'))
-    nc_mu0[:] = np.maximum(0., np.cos( np.deg2rad(nc_file_rfmip.variables['solar_zenith_angle'][:]) ) )
-    
-    nc_tsi = nc_file.createVariable('tsi', float_type, ('col'))
-    nc_tsi[:] = nc_file_rfmip.variables['total_solar_irradiance'][:]
+    nc_mu0[:] = np.cos(np.deg2rad(42.))
    
     nc_h2o     = nc_file.createVariable('vmr_h2o'    , float_type, ('lay', 'col'))
     nc_o3      = nc_file.createVariable('vmr_o3'     , float_type, ('lay', 'col'))
@@ -119,8 +127,7 @@ for ifile in range(nfile):
     nc_hfc32  [:] = nc_file_rfmip.variables['hfc32_GM'][iexpt] * float(nc_file_rfmip.variables['hfc32_GM'].units)
     nc_hfc134a[:] = nc_file_rfmip.variables['hfc134a_GM'][iexpt] * float(nc_file_rfmip.variables['hfc134a_GM'].units)
     nc_cf4    [:] = nc_file_rfmip.variables['cf4_GM'][iexpt] * float(nc_file_rfmip.variables['cf4_GM'].units)
-    # nc_no2    [:] = nc_file_rfmip.variables['no2_GM'][iexpt] * float(nc_file_rfmip.variables['no2a_GM'].units)
-
+  
     # CvH: To be removed if settings can be set.
     nc_lwp = nc_file.createVariable('lwp', float_type, ('lay', 'col'))
     nc_iwp = nc_file.createVariable('iwp', float_type, ('lay', 'col'))
@@ -140,9 +147,9 @@ for ifile in range(nfile):
         nc_temp_layer[-1] = nc_temp_level[-1]
         nc_temp_layer[:-1] = nc_temp_level[:-2,:] + np.random.random(nc_temp_layer[:1].shape) * (nc_temp_level[1:-1,:] - nc_temp_level[:-2,:])
         nc_surface_temperature[:] = (nc_temp_level[-1,:]-10) + np.random.random(nc_surface_temperature[:].shape) * 20. 
-        nc_o3[:] += nc_o3[:] *  0.75 * (np.random.random(nc_o3.shape )*2-1) 
+        nc_o3[:] += nc_o3[:] *  .75 * (np.random.random(nc_o3.shape )*2-1) 
         h2o_ref = np.copy(nc_h2o[:])
-        nc_h2o[:] += nc_h2o[:] * 0.75 * (np.random.random(nc_h2o.shape)*2-1) 
+        nc_h2o[:] += nc_h2o[:] * .75 * (np.random.random(nc_h2o.shape)*2-1) 
         qsat, es = get_qsat(nc_temp_layer[:], nc_pres_layer[:])
         for ilay in range(nc_h2o.shape[0]):
             for icol in range(nc_h2o.shape[1]):
@@ -157,5 +164,27 @@ for ifile in range(nfile):
         nc_h2o[:] = nc_h2o[::-1]
         nc_o3[:]  = nc_o3[::-1]
 
+    if ftrop:
+    # For correct fluxes, we need the upper/lower tropopsphere boundary [P <> 9948 Pa] at a constant index
+    # this is the case with the rfmip profiles (and many LES)
+    # but not when pressures are randomly pertubated
+        px = 9948.431564193395
+        pidx = int(np.round(np.mean(np.argmin(np.where(nc_pres_layer[:]>px,1,0),axis=0))))
+        nc_pres_level[pidx] = np.mean(nc_pres_level[pidx])
+        nc_pres_level[pidx+1] = np.mean(nc_pres_level[pidx+1])
+        flg = nc_pres_level[pidx]>nc_pres_level[pidx-1]
+        if flg.sum()>0:
+            nc_pres_level[pidx-1,flg] = nc_pres_level[pidx-2,flg]+np.random.random(np.sum(flg))*(nc_pres_level[pidx-1,flg]-nc_pres_level[pidx-2,flg])
+        nc_pres_layer[:] = (nc_pres_level[1:] + nc_pres_level[:-1])/2.
+        pidx = np.round(np.argmin(np.where(nc_pres_layer[:]>px,1,0),axis=0))
     nc_file_rfmip.close()
     nc_file.close()
+
+if __name__=='__main__':
+    procs = []
+    for ifile in range(nfile):
+        procs += [Process(target=create_file, args=(ifile,))]
+    for i in range(len(procs)):
+        procs[i].start()
+    for i in range(len(procs)):
+        procs[i].join()
