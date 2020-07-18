@@ -34,7 +34,7 @@ def get_qsat(T,P):
 
 for ifile in range(nfile):
     # Save all the input data to NetCDF
-    nc_file = nc.Dataset('data/rte_rrtmgp_input_{:03d}.nc'.format(ifile), mode='w', datamodel='NETCDF4', clobber=True)
+    nc_file = nc.Dataset('data2/rte_rrtmgp_input_{:03d}.nc'.format(ifile), mode='w', datamodel='NETCDF4', clobber=True)
     nc_file_rfmip = nc.Dataset('multiple_input4MIPs_radiation_RFMIP_UColorado-RFMIP-1-2_none.nc', mode='r', datamodel='NETCDF4', clobber=False)
     
     # Create a group for the radiation and set up the values.
@@ -131,20 +131,22 @@ for ifile in range(nfile):
     nc_iwp[:,:] = 0.
     nc_rel[:,:] = 0.
     nc_rei[:,:] = 0.
-
+    
     if frand:
+        qsat_old,es_old = get_qsat(nc_temp_layer[:],nc_pres_layer[:])
         nc_pres_level[:] = new_preslev(nc_pres_level[:], nc_pres_layer[:])
         nc_pres_layer[:] = (nc_pres_level[1:] + nc_pres_level[:-1])/2.
         nc_temp_level[:] = nc_temp_level[:] + 5 * (np.random.random(nc_temp_level.shape)*2-1)
-        nc_temp_layer[:] = (nc_temp_level[:-1,:] + nc_temp_level[1:,:]) / 2.
+        nc_temp_layer[-1] = nc_temp_level[-1]
+        nc_temp_layer[:-1] = nc_temp_level[:-2,:] + np.random.random(nc_temp_layer[:1].shape) * (nc_temp_level[1:-1,:] - nc_temp_level[:-2,:])
         nc_surface_temperature[:] = (nc_temp_level[-1,:]-10) + np.random.random(nc_surface_temperature[:].shape) * 20. 
         nc_o3[:] += nc_o3[:] *  0.75 * (np.random.random(nc_o3.shape )*2-1) 
-        h2o_ref = nc_h2o[:]
+        h2o_ref = np.copy(nc_h2o[:])
         nc_h2o[:] += nc_h2o[:] * 0.75 * (np.random.random(nc_h2o.shape)*2-1) 
         qsat, es = get_qsat(nc_temp_layer[:], nc_pres_layer[:])
         for ilay in range(nc_h2o.shape[0]):
             for icol in range(nc_h2o.shape[1]):
-                while nc_h2o[ilay,icol] > 1.01*qsat[ilay,icol] and es[ilay,icol]<nc_pres_layer[ilay,icol] and es[ilay,icol]>0. and h2o_ref[ilay,icol]<qsat[ilay,icol]:
+                while nc_h2o[ilay,icol] > 1.01*qsat[ilay,icol] and es[ilay,icol]<nc_pres_layer[ilay,icol] and es_old[ilay,icol]>0. and h2o_ref[ilay,icol]<qsat_old[ilay,icol]:
                     nc_h2o[ilay,icol] = h2o_ref[ilay,icol] + h2o_ref[ilay,icol] * 0.75 * (np.random.random(1)*2-1) 
 
     if finvt:

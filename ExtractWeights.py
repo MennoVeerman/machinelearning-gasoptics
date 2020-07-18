@@ -42,6 +42,7 @@ def get_placeholderdict(name, keys):
     placeholderdict = {}
     for key in keys:
         placeholderdict[key] = tf.placeholder(tf.float32, shape=[None], name=key)
+    print(placeholderdict.keys())
     return placeholderdict
 
 ### function to make frozen graph
@@ -187,6 +188,6 @@ if __name__ == "__main__":
 
     if args.args_from_file:
         read_run_arguments(args, args.args_inp_file)
-    for nodes,dirname in [([32],"1L-32/")]:#, ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
+    for nodes,dirname in [([32],"1L-32/"), ([32,32],"2L-32_32/"), ([64],"1L-64/"), ([64,64],"2L-64_64/"), ([32,64,128],"3L-32_64_128/")]:
         main_extractweights(dirname, nodes)
  
